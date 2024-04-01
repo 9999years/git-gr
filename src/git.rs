@@ -1,13 +1,16 @@
 use std::io::stdout;
 use std::process::Command;
+use std::sync::OnceLock;
 
 use command_error::CommandExt;
 use miette::miette;
 use miette::Context;
 use miette::IntoDiagnostic;
+use regex::Regex;
 
 use crate::format_bulleted_list;
 use crate::gerrit::Gerrit;
+use crate::gerrit::GerritGitRemote;
 
 /// `git` CLI wrapper.
 #[derive(Debug)]
@@ -24,9 +27,9 @@ impl Git {
     }
 
     /// Push to a `refs/for/{branch}` ref.
-    pub fn gerrit_push(&self, remote: &str, branch: &str) -> miette::Result<()> {
+    pub fn gerrit_push(&self, remote: &str, branch: &str, target: &str) -> miette::Result<()> {
         self.command()
-            .args([remote, &format!("refs/for/{branch}")])
+            .args(["push", remote, &format!("{branch}:refs/for/{target}")])
             .status_checked()
             .map(|_| ())
             .into_diagnostic()
@@ -59,8 +62,8 @@ impl Git {
             .to_owned())
     }
 
-    pub fn default_branch(&self, remote: &str) -> miette::Result<String> {
-        let full_branch = self
+    fn default_branch_symbolic_ref(&self, remote: &str) -> miette::Result<String> {
+        let output = self
             .command()
             .args([
                 "symbolic-ref",
@@ -71,16 +74,64 @@ impl Git {
             .into_diagnostic()?
             .stdout;
 
-        full_branch
-            .strip_prefix(remote)
-            .and_then(|branch| branch.strip_prefix('/'))
-            .ok_or_else(|| {
-                miette!("Failed to parse branch; expected \"{remote}/BRANCH\", got {full_branch:?}")
+        static RE: OnceLock<Regex> = OnceLock::new();
+        let captures = RE
+            .get_or_init(|| {
+                Regex::new(
+                    r"(?xm)
+                    ^
+                    (?P<remote>[[:word:]]+)/(?P<branch>[[:word:]]+)
+                    $
+                    ",
+                )
+                .expect("Regex parses")
             })
-            .map(|branch| branch.to_owned())
+            .captures(&output);
+
+        match captures {
+            Some(captures) => Ok(captures["branch"].to_owned()),
+            None => Err(miette!(
+                "Could not parse `git symbolic-ref` output:\n{output}"
+            )),
+        }
     }
 
-    pub fn gerrit(&self, gerrit_remote_name: Option<&str>) -> miette::Result<Gerrit> {
+    fn default_branch_ls_remote(&self, remote: &str) -> miette::Result<String> {
+        let output = self
+            .command()
+            .args(["ls-remote", "--symref", remote, "HEAD"])
+            .output_checked_utf8()
+            .into_diagnostic()?
+            .stdout;
+
+        static RE: OnceLock<Regex> = OnceLock::new();
+        let captures = RE
+            .get_or_init(|| {
+                Regex::new(
+                    r"(?xm)
+                    ^
+                    ref: refs/heads/(?P<branch>[[:word:]]+)\tHEAD
+                    $
+                    ",
+                )
+                .expect("Regex parses")
+            })
+            .captures(&output);
+
+        match captures {
+            Some(captures) => Ok(captures["branch"].to_owned()),
+            None => Err(miette!("Could not parse `git ls-remote` output:\n{output}")),
+        }
+    }
+
+    pub fn default_branch(&self, remote: &str) -> miette::Result<String> {
+        self.default_branch_symbolic_ref(remote).or_else(|err| {
+            tracing::debug!("Failed to get default branch: {err}");
+            self.default_branch_ls_remote(remote)
+        })
+    }
+
+    pub fn gerrit(&self, gerrit_remote_name: Option<&str>) -> miette::Result<GerritGitRemote> {
         let mut tried = Vec::new();
 
         if let Some(remote_name) = gerrit_remote_name {
@@ -105,7 +156,7 @@ impl Git {
 
             tried.push(url.clone());
 
-            match Gerrit::parse_from_remote_url(&url) {
+            match GerritGitRemote::from_remote(&remote, &url) {
                 Ok(gerrit) => {
                     return Ok(gerrit);
                 }

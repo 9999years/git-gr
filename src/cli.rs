@@ -23,7 +23,7 @@ pub struct Opts {
 pub enum Command {
     /// Push a branch to Gerrit.
     Push {
-        /// The branch to push. Defaults to the current branch.
+        /// The branch or commit to push. Defaults to `HEAD`.
         #[arg(short, long)]
         branch: Option<String>,
 
@@ -31,7 +31,7 @@ pub enum Command {
         ///
         /// Defaults to the default upstream branch.
         #[arg()]
-        push_for: Option<String>,
+        target: Option<String>,
     },
     /// Checkout a CL.
     Checkout { number: ChangeNumber },

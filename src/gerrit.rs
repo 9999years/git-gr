@@ -1,3 +1,5 @@
+use std::ops::Deref;
+use std::ops::DerefMut;
 use std::process::Command;
 use std::sync::OnceLock;
 
@@ -123,6 +125,36 @@ impl Gerrit {
             .status_checked()
             .into_diagnostic()?;
         Ok(())
+    }
+}
+
+/// A [`Gerrit`] client tied to a specific Git remote.
+#[derive(Debug, Clone)]
+pub struct GerritGitRemote {
+    pub remote: String,
+    inner: Gerrit,
+}
+
+impl GerritGitRemote {
+    pub fn from_remote(remote: &str, url: &str) -> miette::Result<Self> {
+        Gerrit::parse_from_remote_url(url).map(|inner| Self {
+            remote: remote.to_owned(),
+            inner,
+        })
+    }
+}
+
+impl Deref for GerritGitRemote {
+    type Target = Gerrit;
+
+    fn deref(&self) -> &Self::Target {
+        &self.inner
+    }
+}
+
+impl DerefMut for GerritGitRemote {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.inner
     }
 }
 
