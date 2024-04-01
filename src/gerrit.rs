@@ -125,6 +125,8 @@ impl Gerrit {
     }
 
     /// Checkout a CL.
+    ///
+    /// TODO: Should maybe switch to a branch first?
     pub fn checkout_cl(&self, change: ChangeNumber) -> miette::Result<()> {
         let git = self.git();
         git.command()
