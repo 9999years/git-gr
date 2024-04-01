@@ -1,5 +1,6 @@
 use std::fmt::Display;
 
+use clap::builder::RangedU64ValueParser;
 use clap::builder::TypedValueParser;
 use clap::builder::ValueParser;
 use clap::builder::ValueParserFactory;
@@ -63,6 +64,8 @@ impl TypedValueParser for ChangeNumberParser {
         arg: Option<&clap::Arg>,
         value: &std::ffi::OsStr,
     ) -> Result<Self::Value, clap::Error> {
-        todo!()
+        RangedU64ValueParser::new()
+            .parse_ref(cmd, arg, value)
+            .map(ChangeNumber)
     }
 }

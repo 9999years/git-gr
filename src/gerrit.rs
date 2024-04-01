@@ -70,15 +70,12 @@ impl Gerrit {
 
     /// The `ssh` destination to connect to.
     pub fn connect_to(&self) -> String {
-        format!(
-            "{}@{}:{}/{}",
-            self.username, self.host, self.port, self.project
-        )
+        format!("ssh://{}@{}:{}", self.username, self.host, self.port)
     }
 
     pub fn remote(&self) -> String {
         // TODO: Get remote name.
-        format!("ssh://{}", self.connect_to())
+        format!("{}/{}", self.connect_to(), self.project)
     }
 
     /// A `gerrit` command to run on the remote.

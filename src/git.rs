@@ -1,3 +1,4 @@
+use std::io::stdout;
 use std::process::Command;
 
 use command_error::CommandExt;
@@ -49,13 +50,34 @@ impl Git {
     pub fn remote_url(&self, remote: &str) -> miette::Result<String> {
         Ok(self
             .command()
-            .args(["git", "remote", "get-url", &remote])
+            .args(["remote", "get-url", &remote])
             .output_checked_utf8()
             .into_diagnostic()
             .wrap_err("Failed to get Git remote URL")?
             .stdout
             .trim()
             .to_owned())
+    }
+
+    pub fn default_branch(&self, remote: &str) -> miette::Result<String> {
+        let full_branch = self
+            .command()
+            .args([
+                "symbolic-ref",
+                "--short",
+                &format!("refs/remotes/{remote}/HEAD"),
+            ])
+            .output_checked_utf8()
+            .into_diagnostic()?
+            .stdout;
+
+        full_branch
+            .strip_prefix(remote)
+            .and_then(|branch| branch.strip_prefix('/'))
+            .ok_or_else(|| {
+                miette!("Failed to parse branch; expected \"{remote}/BRANCH\", got {full_branch:?}")
+            })
+            .map(|branch| branch.to_owned())
     }
 
     pub fn gerrit(&self, gerrit_remote_name: Option<&str>) -> miette::Result<Gerrit> {

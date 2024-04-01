@@ -21,7 +21,10 @@ fn main() -> miette::Result<()> {
     install_tracing(&opts.log)?;
 
     match opts.command {
-        cli::Command::Push { branch, push_for } => todo!(),
+        cli::Command::Push { branch, push_for } => {
+            let git = Git::new();
+            let gerrit = git.gerrit(None)?;
+        }
         cli::Command::Checkout { number } => todo!(),
         cli::Command::Up => todo!(),
         cli::Command::Down => todo!(),
