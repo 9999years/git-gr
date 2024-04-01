@@ -51,7 +51,12 @@ impl GerritQuery {
 
     /// Convert this query into CLI options, to be appended to `gerrit`.
     pub fn into_args(self) -> Vec<String> {
-        let mut args = vec!["query".to_owned(), self.query];
+        let mut args = vec![
+            "query".to_owned(),
+            self.query,
+            "--format".to_owned(),
+            "json".to_owned(),
+        ];
 
         if self.all_approvals {
             args.push("--all-approvals".to_owned());

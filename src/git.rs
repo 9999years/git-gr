@@ -1,4 +1,3 @@
-use std::io::stdout;
 use std::process::Command;
 use std::sync::OnceLock;
 
@@ -9,7 +8,6 @@ use miette::IntoDiagnostic;
 use regex::Regex;
 
 use crate::format_bulleted_list;
-use crate::gerrit::Gerrit;
 use crate::gerrit::GerritGitRemote;
 
 /// `git` CLI wrapper.

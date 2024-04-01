@@ -13,8 +13,11 @@ use serde::de::DeserializeOwned;
 use utf8_command::Utf8Output;
 
 use crate::change_number::ChangeNumber;
+use crate::current_patch_set::CurrentPatchSet;
 use crate::gerrit_query::GerritQuery;
 use crate::git::Git;
+use crate::query_result::ChangeCurrentPatchSet;
+use crate::query_result::QueryResult;
 
 /// Gerrit SSH client wrapper.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -91,11 +94,11 @@ impl Gerrit {
         cmd
     }
 
-    pub fn query<T: DeserializeOwned>(&self, query: GerritQuery) -> miette::Result<T> {
+    pub fn query<T: DeserializeOwned>(&self, query: GerritQuery) -> miette::Result<QueryResult<T>> {
         self.command(query.into_args())
             .output_checked_as(|context: OutputContext<Utf8Output>| {
                 if context.status().success() {
-                    match serde_json::from_str(&context.output().stdout) {
+                    match QueryResult::from_stdout(&context.output().stdout) {
                         Ok(value) => Ok(value),
                         Err(error) => Err(context.error_msg(error)),
                     }
@@ -106,17 +109,26 @@ impl Gerrit {
             .into_diagnostic()
     }
 
-    fn cl_ref(&self, id: ChangeNumber) -> String {
-        let patch_number = todo!();
-        id.git_ref(patch_number)
+    fn current_patch_set(&self, change: ChangeNumber) -> miette::Result<CurrentPatchSet> {
+        let mut result = self.query::<ChangeCurrentPatchSet>(
+            GerritQuery::new(change.to_string()).current_patch_set(),
+        )?;
+        Ok(result
+            .changes
+            .pop()
+            .ok_or_else(|| miette!("Didn't find change {change}"))?
+            .current_patch_set)
+    }
+
+    fn cl_ref(&self, change: ChangeNumber) -> miette::Result<String> {
+        Ok(self.current_patch_set(change)?.ref_name)
     }
 
     /// Checkout a CL.
-    pub fn checkout_cl(&self, id: ChangeNumber) -> miette::Result<()> {
-        // git fetch ssh://rbt@gerrit.lix.systems:2022/lix refs/changes/85/685/5 && git checkout FETCH_HEAD
+    pub fn checkout_cl(&self, change: ChangeNumber) -> miette::Result<()> {
         let git = self.git();
         git.command()
-            .args(["fetch", &self.remote(), &self.cl_ref(id)])
+            .args(["fetch", &self.remote(), &self.cl_ref(change)?])
             .status_checked()
             .into_diagnostic()?;
         // Seriously, `git fetch` doesn't write the fetched ref anywhere but `FETCH_HEAD`?

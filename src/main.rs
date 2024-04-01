@@ -1,12 +1,16 @@
+mod approval;
+mod author;
 mod change_id;
 mod change_number;
 mod cli;
+mod current_patch_set;
 mod depends_on;
 mod format_bulleted_list;
 mod gerrit;
 mod gerrit_query;
 mod git;
 mod install_tracing;
+mod query_result;
 
 use clap::Parser;
 use cli::Opts;
@@ -34,7 +38,11 @@ fn main() -> miette::Result<()> {
             };
             git.gerrit_push(&gerrit.remote, &branch, &target)?;
         }
-        cli::Command::Checkout { number } => todo!(),
+        cli::Command::Checkout { number } => {
+            let git = Git::new();
+            let gerrit = git.gerrit(None)?;
+            gerrit.checkout_cl(number)?;
+        }
         cli::Command::Up => todo!(),
         cli::Command::Down => todo!(),
         cli::Command::Cli { args } => {
