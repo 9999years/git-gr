@@ -202,4 +202,12 @@ impl Git {
 
         Err(miette!("Failed to parse Gerrit configuration from Git remotes. Tried to parse these remotes:\n{}", format_bulleted_list(tried)))
     }
+
+    pub fn rebase(&self, onto: &str) -> miette::Result<()> {
+        self.command()
+            .args(["rebase", onto])
+            .status_checked()
+            .map(|_| ())
+            .into_diagnostic()
+    }
 }

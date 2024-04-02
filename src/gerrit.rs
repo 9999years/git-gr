@@ -12,11 +12,10 @@ use regex::Regex;
 use serde::de::DeserializeOwned;
 use utf8_command::Utf8Output;
 
-use crate::change_id::ChangeId;
-use crate::change_number::ChangeNumber;
-use crate::current_patch_set::CurrentPatchSet;
+use crate::chain::Chain;
 use crate::gerrit_query::GerritQuery;
 use crate::git::Git;
+use crate::query_result::Change;
 use crate::query_result::ChangeCurrentPatchSet;
 use crate::query_result::ChangeDependencies;
 use crate::query_result::QueryResult;
@@ -128,42 +127,73 @@ impl Gerrit {
             .into_diagnostic()
     }
 
-    fn current_patch_set(&self, change: ChangeNumber) -> miette::Result<CurrentPatchSet> {
-        let mut result = self.query::<ChangeCurrentPatchSet>(
-            GerritQuery::new(change.to_string()).current_patch_set(),
-        )?;
-        Ok(result
-            .changes
-            .pop()
-            .ok_or_else(|| miette!("Didn't find change {change}"))?
-            .current_patch_set)
-    }
-
-    pub fn dependencies(&self, change: ChangeId) -> miette::Result<ChangeDependencies> {
-        let mut result =
-            self.query::<ChangeDependencies>(GerritQuery::new(change.to_string()).dependencies())?;
+    pub fn get_change(&self, change: &str) -> miette::Result<Change> {
+        let mut result = self.query::<Change>(GerritQuery::new(change.to_string()))?;
         result
             .changes
             .pop()
             .ok_or_else(|| miette!("Didn't find change {change}"))
     }
 
-    fn cl_ref(&self, change: ChangeNumber) -> miette::Result<String> {
-        Ok(self.current_patch_set(change)?.ref_name)
+    pub fn get_current_patch_set(&self, change: &str) -> miette::Result<ChangeCurrentPatchSet> {
+        let mut result = self.query::<ChangeCurrentPatchSet>(
+            GerritQuery::new(change.to_owned()).current_patch_set(),
+        )?;
+        Ok(result
+            .changes
+            .pop()
+            .ok_or_else(|| miette!("Didn't find change {change}"))?)
     }
 
-    /// Checkout a CL.
+    pub fn dependencies(&self, change: &str) -> miette::Result<ChangeDependencies> {
+        let mut result =
+            self.query::<ChangeDependencies>(GerritQuery::new(change.to_owned()).dependencies())?;
+        result
+            .changes
+            .pop()
+            .ok_or_else(|| miette!("Didn't find change {change}"))
+    }
+
+    pub fn dependency_graph(&self, change: &str) -> miette::Result<Chain> {
+        let change = self.get_change(change)?;
+        Chain::new(self, change.number)
+    }
+
+    fn cl_ref(&self, change: &str) -> miette::Result<String> {
+        Ok(self
+            .get_current_patch_set(change)?
+            .current_patch_set
+            .ref_name)
+    }
+
+    /// Fetch a CL.
     ///
-    /// TODO: Should maybe switch to a branch first?
-    pub fn checkout_cl(&self, change: ChangeNumber) -> miette::Result<()> {
+    /// Returns the Git ref of the fetched patchset.
+    pub fn fetch_cl(&self, change: &str) -> miette::Result<String> {
         let git = self.git();
         git.command()
             .args(["fetch", &self.remote(), &self.cl_ref(change)?])
             .status_checked()
             .into_diagnostic()?;
         // Seriously, `git fetch` doesn't write the fetched ref anywhere but `FETCH_HEAD`?
+        Ok(git
+            .command()
+            .args(["rev-parse", "FETCH_HEAD"])
+            .output_checked_utf8()
+            .into_diagnostic()?
+            .stdout
+            .trim()
+            .to_owned())
+    }
+
+    /// Checkout a CL.
+    ///
+    /// TODO: Should maybe switch to a branch first?
+    pub fn checkout_cl(&self, change: &str) -> miette::Result<()> {
+        let git_ref = self.fetch_cl(change)?;
+        let git = self.git();
         git.command()
-            .args(["checkout", "FETCH_HEAD"])
+            .args(["checkout", &git_ref])
             .status_checked()
             .into_diagnostic()?;
         Ok(())

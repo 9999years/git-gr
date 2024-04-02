@@ -14,3 +14,12 @@ pub struct NeededBy {
     #[serde(default)]
     pub is_current_patch_set: bool,
 }
+
+/// A change which is needed by another change.
+///
+/// This allows constructing a graph of changes.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub struct NeededByRelation {
+    pub change: ChangeNumber,
+    pub needed_by: ChangeNumber,
+}

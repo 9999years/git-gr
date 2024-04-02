@@ -39,15 +39,7 @@ pub enum Command {
         number: ChangeNumber,
     },
     /// Rebase each CL in a stack, ensuring it's up-to-date with its parent.
-    Restack {
-        /// Only restack this CL and its descendants.
-        #[arg(long)]
-        upstack: bool,
-
-        /// Only restack this CL and its ancestors.
-        #[arg(long)]
-        downstack: bool,
-    },
+    Restack,
     /// Checkout the next CL above this one in the stack.
     Up,
     /// Checkout the next CL below this one in the stack.

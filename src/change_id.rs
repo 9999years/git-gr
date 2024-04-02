@@ -1,4 +1,5 @@
 use std::fmt::Display;
+use std::ops::Deref;
 
 use serde::Deserialize;
 
@@ -22,5 +23,13 @@ impl<'de> Deserialize<'de> for ChangeId {
         D: serde::Deserializer<'de>,
     {
         String::deserialize(deserializer).map(Self)
+    }
+}
+
+impl Deref for ChangeId {
+    type Target = str;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
     }
 }
