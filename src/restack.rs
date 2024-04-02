@@ -183,14 +183,18 @@ pub fn restack(gerrit: &GerritGitRemote) -> miette::Result<()> {
     fs::remove_file(todo_path(&git)?).into_diagnostic()?;
 
     let todo = PushTodo::from(todo);
-    todo.write(&git)?;
-    tracing::info!(
-        "Restacked changes:\n{}",
-        format_bulleted_list(todo.refs.iter().map(|(change, RefUpdate { old, new })| {
-            format!("{}: {}..{}", change, &old[..8], &new[..8],)
-        }))
-    );
-    tracing::info!("Restack completed but changes have not been pushed; run `gayrat restack push` to sync changes with the remote.");
+    if todo.is_empty() {
+        tracing::info!("Restack completed; no changes");
+    } else {
+        todo.write(&git)?;
+        tracing::info!(
+            "Restacked changes:\n{}",
+            format_bulleted_list(todo.refs.iter().map(|(change, RefUpdate { old, new })| {
+                format!("{}: {}..{}", change, &old[..8], &new[..8],)
+            }))
+        );
+        tracing::info!("Restack completed but changes have not been pushed; run `gayrat restack push` to sync changes with the remote.");
+    }
 
     Ok(())
 }

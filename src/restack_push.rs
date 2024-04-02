@@ -44,6 +44,10 @@ impl PushTodo {
 
         Ok(())
     }
+
+    pub fn is_empty(&self) -> bool {
+        self.refs.is_empty()
+    }
 }
 
 pub fn restack_push(gerrit: &GerritGitRemote) -> miette::Result<()> {
