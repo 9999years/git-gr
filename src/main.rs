@@ -60,7 +60,7 @@ fn main() -> miette::Result<()> {
             let needed_by = match dependencies.needed_by.len() {
                 0 => {
                     return Err(miette!(
-                        "Change {} isn't needed by any other changes",
+                        "Change {} isn't needed by any changes",
                         dependencies.change.number
                     ));
                 }
@@ -75,7 +75,33 @@ fn main() -> miette::Result<()> {
             };
             gerrit.checkout_cl(needed_by.number)?;
         }
-        cli::Command::Down => todo!(),
+        cli::Command::Down => {
+            let git = Git::new();
+            let change_id = git
+                .change_id("HEAD")
+                .wrap_err("Failed to get Change-Id for HEAD")?;
+            let gerrit = git.gerrit(None)?;
+            let mut dependencies = gerrit
+                .dependencies(change_id)
+                .wrap_err("Failed to get change dependencies")?;
+            let depends_on = match dependencies.depends_on.len() {
+                0 => {
+                    return Err(miette!(
+                        "Change {} doesn't depend on any changes",
+                        dependencies.change.number
+                    ));
+                }
+                1 => dependencies.depends_on.pop().expect("Length was checked"),
+                _ => {
+                    return Err(miette!(
+                        "Change {} depends on multiple changes, and selecting between them is unimplemented:\n{}",
+                        dependencies.change.number,
+                        format_bulleted_list(dependencies.depends_on.iter().map(|change| change.number))
+                    ));
+                }
+            };
+            gerrit.checkout_cl(depends_on.number)?;
+        }
         cli::Command::Cli { args } => {
             let git = Git::new();
             let gerrit = git.gerrit(None)?;

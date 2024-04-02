@@ -6,11 +6,11 @@ use crate::change_number::ChangeNumber;
 #[serde(rename_all = "camelCase")]
 pub struct DependsOn {
     /// Change ID.
-    id: ChangeId,
+    pub id: ChangeId,
     /// Change number.
-    number: ChangeNumber,
+    pub number: ChangeNumber,
     /// Git commit hash.
-    revision: String,
+    pub revision: String,
     #[serde(default)]
-    is_current_patch_set: bool,
+    pub is_current_patch_set: bool,
 }
