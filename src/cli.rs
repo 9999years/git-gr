@@ -55,6 +55,8 @@ pub enum Command {
     },
     /// Checkout the next CL above this one in the stack.
     Up,
+    /// Checkout the top-most CL in the stack.
+    Top,
     /// Checkout the next CL below this one in the stack.
     Down,
     /// Run a `gerrit` command on the remote server.
@@ -66,6 +68,8 @@ pub enum Command {
 
 #[derive(Debug, Clone, Subcommand)]
 pub enum Restack {
+    /// Restack only the currently checked-out CL on its immediate ancestor.
+    This,
     /// Continue an in-progress restack.
     Continue,
     /// Abort an in-progress restack.

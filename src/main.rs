@@ -95,6 +95,39 @@ fn main() -> miette::Result<()> {
             };
             gerrit.checkout_cl(needed_by)?;
         }
+        cli::Command::Top => {
+            let git = Git::new();
+            let change_id = git
+                .change_id("HEAD")
+                .wrap_err("Failed to get Change-Id for HEAD")?;
+            let gerrit = git.gerrit(None)?;
+            let change = gerrit.get_change(&change_id)?.number;
+            let mut next = change;
+
+            loop {
+                let mut needed_by = gerrit
+                    .dependencies(next)
+                    .wrap_err("Failed to get change dependencies")?
+                    .filter_unmerged(&gerrit)?
+                    .needed_by_numbers();
+
+                next = match needed_by.len() {
+                    0 => {
+                        break;
+                    }
+                    1 => needed_by.pop_first().expect("Length was checked"),
+                    _ => {
+                        return Err(miette!(
+                        "Change {} is needed by multiple changes; use `gayrat checkout {}` to pick one:\n{}",
+                        next,
+                        next,
+                        format_bulleted_list(needed_by)
+                    ));
+                    }
+                };
+            }
+            gerrit.checkout_cl(next)?;
+        }
         cli::Command::Down => {
             let git = Git::new();
             let change_id = git
@@ -146,6 +179,9 @@ fn main() -> miette::Result<()> {
                     }
                     cli::Restack::Push => {
                         gerrit.restack_push()?;
+                    }
+                    cli::Restack::This => {
+                        gerrit.restack_this()?;
                     }
                 },
             }

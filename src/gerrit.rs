@@ -14,6 +14,7 @@ use utf8_command::Utf8Output;
 
 use crate::chain::Chain;
 use crate::change_number::ChangeNumber;
+use crate::format_bulleted_list;
 use crate::git::Git;
 use crate::query::Query;
 use crate::query::QueryOptions;
@@ -265,6 +266,49 @@ impl GerritGitRemote {
             remote: remote.to_owned(),
             inner,
         })
+    }
+
+    pub fn restack_this(&self) -> miette::Result<()> {
+        let change_id = self
+            .git()
+            .change_id("HEAD")
+            .wrap_err("Failed to get Change-Id for HEAD")?;
+        let change = self.get_change(&change_id)?;
+        let dependencies = self
+            .dependencies(&change_id)
+            .wrap_err("Failed to get change dependencies")?
+            .filter_unmerged(self)?;
+        let mut depends_on = dependencies.depends_on_numbers();
+        let depends_on = match depends_on.len() {
+            0 => {
+                return Err(miette!(
+                    "Change {} doesn't depend on any changes",
+                    dependencies.change.number
+                ));
+            }
+            1 => depends_on.pop_first().expect("Length was checked"),
+            _ => {
+                return Err(miette!(
+                        "Change {} depends on multiple changes, use `gayrat checkout {}` to pick one:\n{}",
+                        dependencies.change.number,
+                        dependencies.change.number,
+                        format_bulleted_list(&depends_on)
+                    ));
+            }
+        };
+        let depends_on = self.get_current_patch_set(depends_on)?;
+        tracing::info!(
+            "Rebasing {} on {}: {}",
+            change.number,
+            depends_on.change.number,
+            depends_on.current_patch_set.revision
+        );
+        self.git()
+            .command()
+            .args(["rebase", &depends_on.current_patch_set.revision])
+            .status_checked()
+            .into_diagnostic()?;
+        Ok(())
     }
 
     pub fn restack(&self) -> miette::Result<()> {
