@@ -1,3 +1,6 @@
+use std::collections::BTreeMap;
+use std::collections::BTreeSet;
+
 use miette::IntoDiagnostic;
 use serde::de::DeserializeOwned;
 
@@ -90,4 +93,26 @@ pub struct ChangeDependencies {
     pub change: Change,
     pub depends_on: Vec<DependsOn>,
     pub needed_by: Vec<NeededBy>,
+}
+
+impl ChangeDependencies {
+    /// Get the change numbers this change depends on.
+    ///
+    /// These are deduplicated by change number.
+    pub fn depends_on_numbers(&self) -> BTreeSet<ChangeNumber> {
+        self.depends_on
+            .iter()
+            .map(|depends_on| depends_on.number)
+            .collect()
+    }
+
+    /// Get the change numbers this change is needed by.
+    ///
+    /// These are deduplicated by change number.
+    pub fn needed_by_numbers(&self) -> BTreeSet<ChangeNumber> {
+        self.needed_by
+            .iter()
+            .map(|needed_by| needed_by.number)
+            .collect()
+    }
 }

@@ -54,26 +54,27 @@ fn main() -> miette::Result<()> {
                 .change_id("HEAD")
                 .wrap_err("Failed to get Change-Id for HEAD")?;
             let gerrit = git.gerrit(None)?;
-            let mut dependencies = gerrit
+            let dependencies = gerrit
                 .dependencies(change_id)
                 .wrap_err("Failed to get change dependencies")?;
-            let needed_by = match dependencies.needed_by.len() {
+            let mut needed_by = dependencies.needed_by_numbers();
+            let needed_by = match needed_by.len() {
                 0 => {
                     return Err(miette!(
                         "Change {} isn't needed by any changes",
                         dependencies.change.number
                     ));
                 }
-                1 => dependencies.needed_by.pop().expect("Length was checked"),
+                1 => needed_by.pop_first().expect("Length was checked"),
                 _ => {
                     return Err(miette!(
                         "Change {} is needed by multiple changes, and selecting between them is unimplemented:\n{}",
                         dependencies.change.number,
-                        format_bulleted_list(dependencies.needed_by.iter().map(|change| change.number))
+                        format_bulleted_list(needed_by)
                     ));
                 }
             };
-            gerrit.checkout_cl(needed_by.number)?;
+            gerrit.checkout_cl(needed_by)?;
         }
         cli::Command::Down => {
             let git = Git::new();
@@ -81,32 +82,34 @@ fn main() -> miette::Result<()> {
                 .change_id("HEAD")
                 .wrap_err("Failed to get Change-Id for HEAD")?;
             let gerrit = git.gerrit(None)?;
-            let mut dependencies = gerrit
+            let dependencies = gerrit
                 .dependencies(change_id)
                 .wrap_err("Failed to get change dependencies")?;
-            let depends_on = match dependencies.depends_on.len() {
+            let mut depends_on = dependencies.depends_on_numbers();
+            let depends_on = match depends_on.len() {
                 0 => {
                     return Err(miette!(
                         "Change {} doesn't depend on any changes",
                         dependencies.change.number
                     ));
                 }
-                1 => dependencies.depends_on.pop().expect("Length was checked"),
+                1 => depends_on.pop_first().expect("Length was checked"),
                 _ => {
                     return Err(miette!(
                         "Change {} depends on multiple changes, and selecting between them is unimplemented:\n{}",
                         dependencies.change.number,
-                        format_bulleted_list(dependencies.depends_on.iter().map(|change| change.number))
+                        format_bulleted_list(&depends_on)
                     ));
                 }
             };
-            gerrit.checkout_cl(depends_on.number)?;
+            gerrit.checkout_cl(depends_on)?;
         }
         cli::Command::Cli { args } => {
             let git = Git::new();
             let gerrit = git.gerrit(None)?;
             gerrit.command(args).status_checked().into_diagnostic()?;
         }
+        cli::Command::Restack { upstack, downstack } => {}
     }
 
     Ok(())
