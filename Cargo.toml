@@ -14,7 +14,7 @@ categories = ["command-line-utilities"]
 [dependencies]
 camino = "1.1.6"
 clap = { version = "4.5.4", features = ["derive", "wrap_help", "env"] }
-command-error = "0.4.0"
+command-error = { version = "0.4.0", features = [ "tracing" ] }
 itertools = "0.12.1"
 miette = { version = "7.2.0", default-features = false, features = ["fancy-no-backtrace"] }
 owo-colors = { version = "4.0.0", features = ["supports-colors"] }

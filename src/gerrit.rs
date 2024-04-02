@@ -147,10 +147,10 @@ impl Gerrit {
         let change = change.into();
         let mut result =
             self.query::<ChangeCurrentPatchSet>(QueryOptions::new(&change).current_patch_set())?;
-        Ok(result
+        result
             .changes
             .pop()
-            .ok_or_else(|| miette!("Didn't find change {change}"))?)
+            .ok_or_else(|| miette!("Didn't find change {change}"))
     }
 
     pub fn dependencies<'a>(

@@ -210,4 +210,29 @@ impl Git {
             .map(|_| ())
             .into_diagnostic()
     }
+
+    pub fn fetch(&self, remote: &str) -> miette::Result<()> {
+        self.command()
+            .args(["fetch", remote])
+            .status_checked()
+            .map(|_| ())
+            .into_diagnostic()
+    }
+
+    pub fn checkout(&self, commitish: &str) -> miette::Result<()> {
+        self.command()
+            .args(["checkout", commitish])
+            .status_checked()
+            .map(|_| ())
+            .into_diagnostic()
+    }
+
+    /// Get the `HEAD` commit hash.
+    pub fn get_head(&self) -> miette::Result<String> {
+        self.command()
+            .args(["rev-parse", "HEAD"])
+            .output_checked_utf8()
+            .into_diagnostic()
+            .map(|output| output.stdout.trim().to_owned())
+    }
 }

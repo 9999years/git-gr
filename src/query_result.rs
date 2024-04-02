@@ -90,7 +90,9 @@ pub struct ChangeCurrentPatchSet {
 pub struct ChangeDependencies {
     #[serde(flatten)]
     pub change: Change,
+    #[serde(default)]
     pub depends_on: Vec<DependsOn>,
+    #[serde(default)]
     pub needed_by: Vec<NeededBy>,
 }
 

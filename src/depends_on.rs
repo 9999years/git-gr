@@ -84,7 +84,9 @@ impl DependsOnGraph {
                 entry.insert(dependency.depends_on);
             }
             Entry::Occupied(entry) => {
-                return Err(miette!("Changes cannot depend on multiple changes: {} already depends on {} and cannot also depend on {}", entry.key(), entry.get(), dependency.depends_on));
+                if *entry.get() != dependency.depends_on {
+                    return Err(miette!("Changes cannot depend on multiple changes: {} already depends on {} and cannot also depend on {}", entry.key(), entry.get(), dependency.depends_on));
+                }
             }
         }
 

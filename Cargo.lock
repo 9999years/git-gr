@@ -155,6 +155,7 @@ checksum = "273afb523dba4bf7f4955398fe1be1d25704ad8003ef6de46436b4e5662e9020"
 dependencies = [
  "dyn-clone",
  "shell-words",
+ "tracing",
  "utf8-command",
 ]
 
