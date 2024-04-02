@@ -37,6 +37,16 @@ pub enum Command {
     Checkout {
         /// The change number to checkout.
         number: ChangeNumber,
+        /// The patchset number to checkout, if any.
+        ///
+        /// Defaults to the latest patchset.
+        #[arg(short, long)]
+        patchset: Option<u32>,
+    },
+    /// Fetch a CL.
+    Fetch {
+        /// The change number to fetch.
+        number: ChangeNumber,
     },
     /// Rebase each CL in a stack, ensuring it's up-to-date with its parent.
     Restack {

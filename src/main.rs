@@ -19,6 +19,7 @@ mod restack;
 mod restack_push;
 mod tmpdir;
 
+use calm_io::stdoutln;
 use clap::Parser;
 use cli::Opts;
 use command_error::CommandExt;
@@ -46,10 +47,23 @@ fn main() -> miette::Result<()> {
             };
             git.gerrit_push(&gerrit.remote, &branch, &target)?;
         }
-        cli::Command::Checkout { number } => {
+        cli::Command::Checkout { patchset, number } => {
             let git = Git::new();
             let gerrit = git.gerrit(None)?;
-            gerrit.checkout_cl(number)?;
+            match patchset {
+                Some(patchset) => {
+                    gerrit.checkout_cl_patchset(number, patchset)?;
+                }
+                None => {
+                    gerrit.checkout_cl(number)?;
+                }
+            }
+        }
+        cli::Command::Fetch { number } => {
+            let git = Git::new();
+            let gerrit = git.gerrit(None)?;
+            let git_ref = gerrit.fetch_cl(number)?;
+            let _ = stdoutln!("{git_ref}");
         }
         cli::Command::Up => {
             let git = Git::new();

@@ -13,6 +13,7 @@ use serde::de::DeserializeOwned;
 use utf8_command::Utf8Output;
 
 use crate::chain::Chain;
+use crate::change_number::ChangeNumber;
 use crate::git::Git;
 use crate::query::Query;
 use crate::query::QueryOptions;
@@ -212,8 +213,6 @@ impl Gerrit {
     }
 
     /// Checkout a CL.
-    ///
-    /// TODO: Should maybe switch to a branch first?
     pub fn checkout_cl<'a>(&self, change: impl Into<Query<'a>>) -> miette::Result<()> {
         let change = change.into();
         let git_ref = self.fetch_cl(change)?;
@@ -226,8 +225,6 @@ impl Gerrit {
     }
 
     /// Checkout a CL without printing output.
-    ///
-    /// TODO: Should maybe switch to a branch first?
     pub fn checkout_cl_quiet<'a>(&self, change: impl Into<Query<'a>>) -> miette::Result<()> {
         let change = change.into();
         let git_ref = self.fetch_cl_quiet(change)?;
@@ -236,6 +233,17 @@ impl Gerrit {
             .args(["checkout", &git_ref])
             .output_checked_utf8()
             .into_diagnostic()?;
+        Ok(())
+    }
+
+    /// Checkout a CL at a specific patchset.
+    pub fn checkout_cl_patchset(&self, change: ChangeNumber, patchset: u32) -> miette::Result<()> {
+        let git = self.git();
+        git.command()
+            .args(["fetch", &self.remote(), &change.git_ref(patchset)])
+            .output_checked_utf8()
+            .into_diagnostic()?;
+        git.checkout("FETCH_HEAD")?;
         Ok(())
     }
 
