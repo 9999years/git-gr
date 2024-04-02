@@ -2,7 +2,6 @@ use std::fmt::Display;
 
 use clap::builder::RangedU64ValueParser;
 use clap::builder::TypedValueParser;
-use clap::builder::ValueParser;
 use clap::builder::ValueParserFactory;
 use serde::Deserialize;
 

@@ -1,10 +1,74 @@
+use std::borrow::Borrow;
+use std::borrow::Cow;
+use std::fmt::Display;
+
+use crate::change_id::ChangeId;
+use crate::change_number::ChangeNumber;
+
+/// A `gerrit query`.
+///
+/// Efficiently models change number queries and string queries.
+#[derive(Debug, Clone)]
+pub enum Query<'a> {
+    Change(ChangeNumber),
+    String(Cow<'a, str>),
+}
+
+impl<'a> Default for Query<'a> {
+    fn default() -> Self {
+        Self::String(Default::default())
+    }
+}
+
+impl<'a> Display for Query<'a> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Query::Change(change) => change.fmt(f),
+            Query::String(string) => string.fmt(f),
+        }
+    }
+}
+
+impl<'a> From<ChangeNumber> for Query<'a> {
+    fn from(change: ChangeNumber) -> Self {
+        Self::Change(change)
+    }
+}
+
+impl<'a> From<String> for Query<'a> {
+    fn from(query: String) -> Self {
+        Self::String(Cow::Owned(query))
+    }
+}
+
+impl<'a> From<&'a ChangeId> for Query<'a> {
+    fn from(value: &'a ChangeId) -> Self {
+        Self::String(Cow::Borrowed(&value))
+    }
+}
+
+impl<'a> From<&'a str> for Query<'a> {
+    fn from(query: &'a str) -> Self {
+        Self::String(Cow::Borrowed(query))
+    }
+}
+
+impl<'a> From<&'a Query<'a>> for Query<'a> {
+    fn from(query: &'a Query) -> Self {
+        match query {
+            Query::Change(change) => Query::Change(*change),
+            Query::String(string) => Query::String(Cow::Borrowed(string.borrow())),
+        }
+    }
+}
+
 /// Options for performing a `gerrit query`.
 ///
 /// Not modeled: `--deadline`.
 #[derive(Default, Debug, Clone)]
-pub struct GerritQuery {
+pub struct QueryOptions<'a> {
     /// The query to execute.
-    query: String,
+    query: Query<'a>,
     /// Include information about all patch sets and approvals
     all_approvals: bool,
     /// Include all reviewers
@@ -30,9 +94,9 @@ pub struct GerritQuery {
     submit_records: bool,
 }
 
-impl GerritQuery {
+impl<'a> QueryOptions<'a> {
     /// Construct query options wrapping the given string.
-    pub fn new(query: impl Into<String>) -> Self {
+    pub fn new(query: impl Into<Query<'a>>) -> Self {
         Self {
             query: query.into(),
             all_approvals: false,
@@ -53,7 +117,7 @@ impl GerritQuery {
     pub fn into_args(self) -> Vec<String> {
         let mut args = vec![
             "query".to_owned(),
-            self.query,
+            self.query.to_string(),
             "--format".to_owned(),
             "json".to_owned(),
         ];

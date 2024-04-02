@@ -13,8 +13,9 @@ use serde::de::DeserializeOwned;
 use utf8_command::Utf8Output;
 
 use crate::chain::Chain;
-use crate::gerrit_query::GerritQuery;
 use crate::git::Git;
+use crate::query::Query;
+use crate::query::QueryOptions;
 use crate::query_result::Change;
 use crate::query_result::ChangeCurrentPatchSet;
 use crate::query_result::ChangeDependencies;
@@ -112,7 +113,10 @@ impl Gerrit {
         cmd
     }
 
-    pub fn query<T: DeserializeOwned>(&self, query: GerritQuery) -> miette::Result<QueryResult<T>> {
+    pub fn query<T: DeserializeOwned>(
+        &self,
+        query: QueryOptions,
+    ) -> miette::Result<QueryResult<T>> {
         self.command(query.into_args())
             .output_checked_as(|context: OutputContext<Utf8Output>| {
                 if context.status().success() {
@@ -127,39 +131,49 @@ impl Gerrit {
             .into_diagnostic()
     }
 
-    pub fn get_change(&self, change: &str) -> miette::Result<Change> {
-        let mut result = self.query::<Change>(GerritQuery::new(change.to_string()))?;
+    pub fn get_change<'a>(&self, change: impl Into<Query<'a>>) -> miette::Result<Change> {
+        let change = change.into();
+        let mut result = self.query::<Change>(QueryOptions::new(&change))?;
         result
             .changes
             .pop()
             .ok_or_else(|| miette!("Didn't find change {change}"))
     }
 
-    pub fn get_current_patch_set(&self, change: &str) -> miette::Result<ChangeCurrentPatchSet> {
-        let mut result = self.query::<ChangeCurrentPatchSet>(
-            GerritQuery::new(change.to_owned()).current_patch_set(),
-        )?;
+    pub fn get_current_patch_set<'a>(
+        &self,
+        change: impl Into<Query<'a>>,
+    ) -> miette::Result<ChangeCurrentPatchSet> {
+        let change = change.into();
+        let mut result =
+            self.query::<ChangeCurrentPatchSet>(QueryOptions::new(&change).current_patch_set())?;
         Ok(result
             .changes
             .pop()
             .ok_or_else(|| miette!("Didn't find change {change}"))?)
     }
 
-    pub fn dependencies(&self, change: &str) -> miette::Result<ChangeDependencies> {
+    pub fn dependencies<'a>(
+        &self,
+        change: impl Into<Query<'a>>,
+    ) -> miette::Result<ChangeDependencies> {
+        let change = change.into();
         let mut result =
-            self.query::<ChangeDependencies>(GerritQuery::new(change.to_owned()).dependencies())?;
+            self.query::<ChangeDependencies>(QueryOptions::new(&change).dependencies())?;
         result
             .changes
             .pop()
             .ok_or_else(|| miette!("Didn't find change {change}"))
     }
 
-    pub fn dependency_graph(&self, change: &str) -> miette::Result<Chain> {
+    pub fn dependency_graph<'a>(&self, change: impl Into<Query<'a>>) -> miette::Result<Chain> {
+        let change = change.into();
         let change = self.get_change(change)?;
         Chain::new(self, change.number)
     }
 
-    fn cl_ref(&self, change: &str) -> miette::Result<String> {
+    fn cl_ref<'a>(&self, change: impl Into<Query<'a>>) -> miette::Result<String> {
+        let change = change.into();
         Ok(self
             .get_current_patch_set(change)?
             .current_patch_set
@@ -169,7 +183,8 @@ impl Gerrit {
     /// Fetch a CL.
     ///
     /// Returns the Git ref of the fetched patchset.
-    pub fn fetch_cl(&self, change: &str) -> miette::Result<String> {
+    pub fn fetch_cl<'a>(&self, change: impl Into<Query<'a>>) -> miette::Result<String> {
+        let change = change.into();
         let git = self.git();
         git.command()
             .args(["fetch", &self.remote(), &self.cl_ref(change)?])
@@ -189,7 +204,8 @@ impl Gerrit {
     /// Checkout a CL.
     ///
     /// TODO: Should maybe switch to a branch first?
-    pub fn checkout_cl(&self, change: &str) -> miette::Result<()> {
+    pub fn checkout_cl<'a>(&self, change: impl Into<Query<'a>>) -> miette::Result<()> {
+        let change = change.into();
         let git_ref = self.fetch_cl(change)?;
         let git = self.git();
         git.command()

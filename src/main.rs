@@ -13,10 +13,10 @@ mod current_patch_set;
 mod depends_on;
 mod format_bulleted_list;
 mod gerrit;
-mod gerrit_query;
 mod git;
 mod install_tracing;
 mod needed_by;
+mod query;
 mod query_result;
 mod tmpdir;
 
@@ -50,7 +50,7 @@ fn main() -> miette::Result<()> {
         cli::Command::Checkout { number } => {
             let git = Git::new();
             let gerrit = git.gerrit(None)?;
-            gerrit.checkout_cl(&number.to_string())?;
+            gerrit.checkout_cl(number)?;
         }
         cli::Command::Up => {
             let git = Git::new();
@@ -78,7 +78,7 @@ fn main() -> miette::Result<()> {
                     ));
                 }
             };
-            gerrit.checkout_cl(&needed_by.to_string())?;
+            gerrit.checkout_cl(needed_by)?;
         }
         cli::Command::Down => {
             let git = Git::new();
@@ -106,7 +106,7 @@ fn main() -> miette::Result<()> {
                     ));
                 }
             };
-            gerrit.checkout_cl(&depends_on.to_string())?;
+            gerrit.checkout_cl(depends_on)?;
         }
         cli::Command::Cli { args } => {
             let git = Git::new();
@@ -133,16 +133,16 @@ fn main() -> miette::Result<()> {
 
                     if roots.contains(&change) {
                         // Change is root, rebase on target branch.
-                        let change = gerrit.get_current_patch_set(&change.to_string())?;
-                        gerrit.checkout_cl(&change.change.number.to_string())?;
+                        let change = gerrit.get_current_patch_set(change)?;
+                        gerrit.checkout_cl(change.change.number)?;
                         git.rebase(&format!("{}/{}", gerrit.remote, change.change.branch))?;
                     } else {
                         // Change is not root, rebase on parent.
                         let parent = chain.dependencies.depends_on(change).ok_or_else(|| {
                             miette!("Change does not have parent to rebase onto: {change}")
                         })?;
-                        let parent_ref = gerrit.fetch_cl(&parent.to_string())?;
-                        gerrit.checkout_cl(&change.to_string())?;
+                        let parent_ref = gerrit.fetch_cl(parent)?;
+                        gerrit.checkout_cl(change)?;
                         git.rebase(&parent_ref)?;
                     }
 

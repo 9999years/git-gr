@@ -54,7 +54,7 @@ impl DependsOnGraph {
         while !queue.is_empty() {
             let change = queue.pop_back().expect("Length is checked");
             let dependencies = gerrit
-                .dependencies(&change.to_string())
+                .dependencies(change)
                 .wrap_err("Failed to get change dependencies")?;
             for depends_on in dependencies.depends_on_numbers() {
                 dependency_graph.insert(DependsOnRelation { change, depends_on })?;
