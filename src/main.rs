@@ -1,8 +1,3 @@
-use std::collections::BTreeMap;
-use std::collections::BTreeSet;
-use std::collections::VecDeque;
-
-use change_number::ChangeNumber;
 use miette::miette;
 
 mod approval;
@@ -74,7 +69,8 @@ fn main() -> miette::Result<()> {
                 1 => needed_by.pop_first().expect("Length was checked"),
                 _ => {
                     return Err(miette!(
-                        "Change {} is needed by multiple changes, and selecting between them is unimplemented:\n{}",
+                        "Change {} is needed by multiple changes; use `gayrat checkout {}` to pick one:\n{}",
+                        dependencies.change.number,
                         dependencies.change.number,
                         format_bulleted_list(needed_by)
                     ));
@@ -102,7 +98,8 @@ fn main() -> miette::Result<()> {
                 1 => depends_on.pop_first().expect("Length was checked"),
                 _ => {
                     return Err(miette!(
-                        "Change {} depends on multiple changes, and selecting between them is unimplemented:\n{}",
+                        "Change {} depends on multiple changes, use `gayrat checkout {}` to pick one:\n{}",
+                        dependencies.change.number,
                         dependencies.change.number,
                         format_bulleted_list(&depends_on)
                     ));
@@ -117,71 +114,8 @@ fn main() -> miette::Result<()> {
         }
         cli::Command::Restack => {
             let git = Git::new();
-            let change_id = git
-                .change_id("HEAD")
-                .wrap_err("Failed to get Change-Id for HEAD")?;
             let gerrit = git.gerrit(None)?;
-            git.fetch(&gerrit.remote)?;
-            let mut chain = gerrit.dependency_graph(&change_id)?;
-
-            // CL to Git commit hash map representing updated refs after rebase.
-            let mut updated_refs = BTreeMap::<ChangeNumber, String>::new();
-
-            // TODO: Serialize graph to disk so we can continue when there's merge
-            // conflicts.
-            let roots = chain.depends_on_roots();
-            for root in &roots {
-                let mut seen = BTreeSet::new();
-                let mut queue = VecDeque::new();
-                queue.push_front(*root);
-
-                while !queue.is_empty() {
-                    let change = queue.pop_back().expect("Length is checked");
-
-                    if roots.contains(&change) {
-                        // Change is root, rebase on target branch.
-                        let change = gerrit.get_current_patch_set(change)?;
-                        tracing::info!(
-                            "Restacking change {} ({}) on {}",
-                            change.change.number,
-                            change.change.subject.unwrap_or_default(),
-                            change.change.branch
-                        );
-                        git.rebase(&format!("{}/{}", gerrit.remote, change.change.branch))?;
-                        updated_refs.insert(change.change.number, git.get_head()?);
-                    } else {
-                        // Change is not root, rebase on parent.
-                        let parent = chain.dependencies.depends_on(change).ok_or_else(|| {
-                            miette!("Change does not have parent to rebase onto: {change}")
-                        })?;
-                        let parent_ref = match updated_refs.get(&parent) {
-                            Some(parent_ref) => parent_ref.to_owned(),
-                            None => gerrit.fetch_cl(parent)?,
-                        };
-                        let parent = gerrit.get_change(parent)?;
-                        gerrit.checkout_cl(change)?;
-                        let change = gerrit.get_change(change)?;
-                        tracing::info!(
-                            "Restacking change {} ({}) on {} ({})",
-                            change.number,
-                            change.subject.unwrap_or_default(),
-                            parent.number,
-                            parent.subject.unwrap_or_default(),
-                        );
-                        git.rebase(&parent_ref)?;
-                        updated_refs.insert(change.number, git.get_head()?);
-                    }
-
-                    let reverse_dependencies = chain.dependencies.needed_by(change);
-
-                    for needed_by in reverse_dependencies {
-                        if !seen.contains(needed_by) {
-                            seen.insert(*needed_by);
-                            queue.push_front(*needed_by);
-                        }
-                    }
-                }
-            }
+            gerrit.restack()?;
         }
     }
 
