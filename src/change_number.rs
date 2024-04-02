@@ -3,12 +3,16 @@ use std::fmt::Display;
 use clap::builder::RangedU64ValueParser;
 use clap::builder::TypedValueParser;
 use clap::builder::ValueParserFactory;
-use serde::Deserialize;
+
+use crate::gerrit::Gerrit;
 
 /// A Gerrit change number.
 ///
 /// Unlike a change ID, this is a number.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(
+    serde::Serialize, serde::Deserialize, Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord,
+)]
+#[serde(transparent)]
 pub struct ChangeNumber(u64);
 
 impl Display for ChangeNumber {
@@ -32,14 +36,12 @@ impl ChangeNumber {
     pub fn git_ref(&self, patch_number: u32) -> String {
         format!("refs/changes/{}/{}/{patch_number}", self.last_two(), self)
     }
-}
 
-impl<'de> Deserialize<'de> for ChangeNumber {
-    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
-    where
-        D: serde::Deserializer<'de>,
-    {
-        u64::deserialize(deserializer).map(Self)
+    pub fn pretty(&self, gerrit: &Gerrit) -> miette::Result<String> {
+        Ok(match gerrit.get_change(*self)?.subject {
+            Some(subject) => format!("{} ({})", self, subject),
+            None => self.to_string(),
+        })
     }
 }
 

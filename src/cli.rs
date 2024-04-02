@@ -40,6 +40,10 @@ pub enum Command {
     },
     /// Rebase each CL in a stack, ensuring it's up-to-date with its parent.
     Restack,
+    /// Continue an in-progress restack.
+    Continue,
+    /// Abort an in-progress restack.
+    Abort,
     /// Checkout the next CL above this one in the stack.
     Up,
     /// Checkout the next CL below this one in the stack.

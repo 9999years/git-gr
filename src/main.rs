@@ -15,6 +15,7 @@ mod install_tracing;
 mod needed_by;
 mod query;
 mod query_result;
+mod restack;
 mod tmpdir;
 
 use clap::Parser;
@@ -116,6 +117,16 @@ fn main() -> miette::Result<()> {
             let git = Git::new();
             let gerrit = git.gerrit(None)?;
             gerrit.restack()?;
+        }
+        cli::Command::Continue => {
+            let git = Git::new();
+            let gerrit = git.gerrit(None)?;
+            gerrit.restack_continue()?;
+        }
+        cli::Command::Abort => {
+            let git = Git::new();
+            let gerrit = git.gerrit(None)?;
+            gerrit.restack_abort()?;
         }
     }
 

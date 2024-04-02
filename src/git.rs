@@ -1,6 +1,7 @@
 use std::process::Command;
 use std::sync::OnceLock;
 
+use camino::Utf8PathBuf;
 use command_error::CommandExt;
 use miette::miette;
 use miette::Context;
@@ -234,5 +235,14 @@ impl Git {
             .output_checked_utf8()
             .into_diagnostic()
             .map(|output| output.stdout.trim().to_owned())
+    }
+
+    /// Get the `.git` directory path.
+    pub fn get_git_dir(&self) -> miette::Result<Utf8PathBuf> {
+        self.command()
+            .args(["rev-parse", "--git-dir"])
+            .output_checked_utf8()
+            .into_diagnostic()
+            .map(|output| Utf8PathBuf::from(output.stdout.trim()))
     }
 }
