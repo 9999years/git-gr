@@ -8,7 +8,7 @@ pub struct Approval {
     #[serde(rename = "type")]
     type_: String,
     /// The approval description.
-    description: String,
+    description: Option<String>,
     /// The value.
     ///
     /// Generally(?) a number like `-1` or `+2`.

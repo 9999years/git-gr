@@ -34,7 +34,10 @@ pub enum Command {
         target: Option<String>,
     },
     /// Checkout a CL.
-    Checkout { number: ChangeNumber },
+    Checkout {
+        /// The change number to checkout.
+        number: ChangeNumber,
+    },
     /// Checkout the next CL above this one in the stack.
     Up,
     /// Checkout the next CL below this one in the stack.

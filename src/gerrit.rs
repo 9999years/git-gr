@@ -12,12 +12,15 @@ use regex::Regex;
 use serde::de::DeserializeOwned;
 use utf8_command::Utf8Output;
 
+use crate::change_id::ChangeId;
 use crate::change_number::ChangeNumber;
 use crate::current_patch_set::CurrentPatchSet;
 use crate::gerrit_query::GerritQuery;
 use crate::git::Git;
 use crate::query_result::ChangeCurrentPatchSet;
+use crate::query_result::ChangeDependencies;
 use crate::query_result::QueryResult;
+use crate::tmpdir::ssh_control_path;
 
 /// Gerrit SSH client wrapper.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -86,7 +89,23 @@ impl Gerrit {
     /// A `gerrit` command to run on the remote.
     pub fn command(&self, args: impl IntoIterator<Item = impl AsRef<str>>) -> Command {
         let mut cmd = Command::new("ssh");
-        cmd.args([&self.connect_to(), "gerrit"]);
+        cmd.args([
+            // Persist sessions in the background to speed up subsequent `ssh` calls.
+            "-o",
+            "ControlMaster=auto",
+            "-o",
+            &format!(
+                "ControlPath={}",
+                ssh_control_path(&format!(
+                    "gayrat-ssh-{}-{}-{}",
+                    self.username, self.host, self.port
+                ))
+            ),
+            "-o",
+            "ControlPersist=120",
+            &self.connect_to(),
+            "gerrit",
+        ]);
         cmd.args(
             args.into_iter()
                 .map(|arg| shell_words::quote(arg.as_ref()).into_owned()),
@@ -118,6 +137,15 @@ impl Gerrit {
             .pop()
             .ok_or_else(|| miette!("Didn't find change {change}"))?
             .current_patch_set)
+    }
+
+    pub fn dependencies(&self, change: ChangeId) -> miette::Result<ChangeDependencies> {
+        let mut result =
+            self.query::<ChangeDependencies>(GerritQuery::new(change.to_string()).dependencies())?;
+        result
+            .changes
+            .pop()
+            .ok_or_else(|| miette!("Didn't find change {change}"))
     }
 
     fn cl_ref(&self, change: ChangeNumber) -> miette::Result<String> {

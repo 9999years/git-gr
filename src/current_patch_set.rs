@@ -25,6 +25,7 @@ pub struct CurrentPatchSet {
     /// Patch kind, e.g. `TRIVIAL_REBASE`.
     kind: String,
     /// The approvals for this patchset.
+    #[serde(default)]
     pub approvals: Vec<Approval>,
     /// The number of inserted lines in the patchset.
     pub size_insertions: u64,

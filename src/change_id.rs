@@ -8,7 +8,7 @@ use serde::Deserialize;
 ///
 /// TODO: Represent as a big number...?
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
-pub struct ChangeId(String);
+pub struct ChangeId(pub String);
 
 impl Display for ChangeId {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {

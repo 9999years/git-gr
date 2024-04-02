@@ -7,6 +7,7 @@ use miette::Context;
 use miette::IntoDiagnostic;
 use regex::Regex;
 
+use crate::change_id::ChangeId;
 use crate::format_bulleted_list;
 use crate::gerrit::GerritGitRemote;
 
@@ -127,6 +128,41 @@ impl Git {
             tracing::debug!("Failed to get default branch: {err}");
             self.default_branch_ls_remote(remote)
         })
+    }
+
+    pub fn commit_message(&self, commit: &str) -> miette::Result<String> {
+        Ok(self
+            .command()
+            .args(["show", "--no-patch", "--format=%B", &commit])
+            .output_checked_utf8()
+            .into_diagnostic()
+            .wrap_err("Failed to get commit message")?
+            .stdout)
+    }
+
+    pub fn change_id(&self, commit: &str) -> miette::Result<ChangeId> {
+        let commit_message = self.commit_message(commit)?;
+
+        static RE: OnceLock<Regex> = OnceLock::new();
+        let captures = RE
+            .get_or_init(|| {
+                Regex::new(
+                    r"(?xm)
+                    ^
+                    Change-Id:\ (?P<change_id>I[[:xdigit:]]{40})
+                    $
+                    ",
+                )
+                .expect("Regex parses")
+            })
+            .captures(&commit_message);
+
+        match captures {
+            Some(captures) => Ok(ChangeId(captures["change_id"].to_owned())),
+            None => Err(miette!(
+                "Could not find Change-Id in message for commit {commit}:\n{commit_message}"
+            )),
+        }
     }
 
     pub fn gerrit(&self, gerrit_remote_name: Option<&str>) -> miette::Result<GerritGitRemote> {
