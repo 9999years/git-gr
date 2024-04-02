@@ -16,6 +16,7 @@ mod needed_by;
 mod query;
 mod query_result;
 mod restack;
+mod restack_push;
 mod tmpdir;
 
 use clap::Parser;
@@ -58,7 +59,8 @@ fn main() -> miette::Result<()> {
             let gerrit = git.gerrit(None)?;
             let dependencies = gerrit
                 .dependencies(&change_id)
-                .wrap_err("Failed to get change dependencies")?;
+                .wrap_err("Failed to get change dependencies")?
+                .filter_unmerged(&gerrit)?;
             let mut needed_by = dependencies.needed_by_numbers();
             let needed_by = match needed_by.len() {
                 0 => {
@@ -87,7 +89,8 @@ fn main() -> miette::Result<()> {
             let gerrit = git.gerrit(None)?;
             let dependencies = gerrit
                 .dependencies(&change_id)
-                .wrap_err("Failed to get change dependencies")?;
+                .wrap_err("Failed to get change dependencies")?
+                .filter_unmerged(&gerrit)?;
             let mut depends_on = dependencies.depends_on_numbers();
             let depends_on = match depends_on.len() {
                 0 => {
@@ -113,20 +116,25 @@ fn main() -> miette::Result<()> {
             let gerrit = git.gerrit(None)?;
             gerrit.command(args).status_checked().into_diagnostic()?;
         }
-        cli::Command::Restack => {
+        cli::Command::Restack { command } => {
             let git = Git::new();
             let gerrit = git.gerrit(None)?;
-            gerrit.restack()?;
-        }
-        cli::Command::Continue => {
-            let git = Git::new();
-            let gerrit = git.gerrit(None)?;
-            gerrit.restack_continue()?;
-        }
-        cli::Command::Abort => {
-            let git = Git::new();
-            let gerrit = git.gerrit(None)?;
-            gerrit.restack_abort()?;
+            match command {
+                None => {
+                    gerrit.restack()?;
+                }
+                Some(command) => match command {
+                    cli::Restack::Continue => {
+                        gerrit.restack_continue()?;
+                    }
+                    cli::Restack::Abort => {
+                        gerrit.restack_abort()?;
+                    }
+                    cli::Restack::Push => {
+                        gerrit.restack_push()?;
+                    }
+                },
+            }
         }
     }
 

@@ -27,9 +27,9 @@ impl Git {
     }
 
     /// Push to a `refs/for/{branch}` ref.
-    pub fn gerrit_push(&self, remote: &str, branch: &str, target: &str) -> miette::Result<()> {
+    pub fn gerrit_push(&self, remote: &str, commitish: &str, target: &str) -> miette::Result<()> {
         self.command()
-            .args(["push", remote, &format!("{branch}:refs/for/{target}")])
+            .args(["push", remote, &format!("{commitish}:refs/for/{target}")])
             .status_checked()
             .map(|_| ())
             .into_diagnostic()
@@ -244,5 +244,16 @@ impl Git {
             .output_checked_utf8()
             .into_diagnostic()
             .map(|output| Utf8PathBuf::from(output.stdout.trim()))
+    }
+
+    pub fn rev_parse(&self, commitish: &str) -> miette::Result<String> {
+        Ok(self
+            .command()
+            .args(["rev-parse", commitish])
+            .output_checked_utf8()
+            .into_diagnostic()?
+            .stdout
+            .trim()
+            .to_owned())
     }
 }

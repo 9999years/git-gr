@@ -22,6 +22,7 @@ use crate::query_result::ChangeDependencies;
 use crate::query_result::QueryResult;
 use crate::restack::restack;
 use crate::restack::restack_abort;
+use crate::restack_push::restack_push;
 use crate::tmpdir::ssh_control_path;
 
 /// Gerrit SSH client wrapper.
@@ -193,14 +194,21 @@ impl Gerrit {
             .status_checked()
             .into_diagnostic()?;
         // Seriously, `git fetch` doesn't write the fetched ref anywhere but `FETCH_HEAD`?
-        Ok(git
-            .command()
-            .args(["rev-parse", "FETCH_HEAD"])
+        git.rev_parse("FETCH_HEAD")
+    }
+
+    /// Fetch a CL without forwarding output to the user's terminal.
+    ///
+    /// Returns the Git ref of the fetched patchset.
+    pub fn fetch_cl_quiet<'a>(&self, change: impl Into<Query<'a>>) -> miette::Result<String> {
+        let change = change.into();
+        let git = self.git();
+        git.command()
+            .args(["fetch", &self.remote(), &self.cl_ref(change)?])
             .output_checked_utf8()
-            .into_diagnostic()?
-            .stdout
-            .trim()
-            .to_owned())
+            .into_diagnostic()?;
+        // Seriously, `git fetch` doesn't write the fetched ref anywhere but `FETCH_HEAD`?
+        git.rev_parse("FETCH_HEAD")
     }
 
     /// Checkout a CL.
@@ -217,12 +225,18 @@ impl Gerrit {
         Ok(())
     }
 
-    pub fn restack(&self) -> miette::Result<()> {
-        restack(self)
-    }
-
-    pub fn restack_continue(&self) -> miette::Result<()> {
-        self.restack()
+    /// Checkout a CL without printing output.
+    ///
+    /// TODO: Should maybe switch to a branch first?
+    pub fn checkout_cl_quiet<'a>(&self, change: impl Into<Query<'a>>) -> miette::Result<()> {
+        let change = change.into();
+        let git_ref = self.fetch_cl_quiet(change)?;
+        let git = self.git();
+        git.command()
+            .args(["checkout", &git_ref])
+            .output_checked_utf8()
+            .into_diagnostic()?;
+        Ok(())
     }
 
     pub fn restack_abort(&self) -> miette::Result<()> {
@@ -243,6 +257,18 @@ impl GerritGitRemote {
             remote: remote.to_owned(),
             inner,
         })
+    }
+
+    pub fn restack(&self) -> miette::Result<()> {
+        restack(self)
+    }
+
+    pub fn restack_continue(&self) -> miette::Result<()> {
+        self.restack()
+    }
+
+    pub fn restack_push(&self) -> miette::Result<()> {
+        restack_push(self)
     }
 }
 

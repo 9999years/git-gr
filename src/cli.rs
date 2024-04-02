@@ -39,11 +39,10 @@ pub enum Command {
         number: ChangeNumber,
     },
     /// Rebase each CL in a stack, ensuring it's up-to-date with its parent.
-    Restack,
-    /// Continue an in-progress restack.
-    Continue,
-    /// Abort an in-progress restack.
-    Abort,
+    Restack {
+        #[command(subcommand)]
+        command: Option<Restack>,
+    },
     /// Checkout the next CL above this one in the stack.
     Up,
     /// Checkout the next CL below this one in the stack.
@@ -53,4 +52,14 @@ pub enum Command {
         /// Arguments to pass to `gerrit`.
         args: Vec<String>,
     },
+}
+
+#[derive(Debug, Clone, Subcommand)]
+pub enum Restack {
+    /// Continue an in-progress restack.
+    Continue,
+    /// Abort an in-progress restack.
+    Abort,
+    /// Push changes from a completed restack.
+    Push,
 }

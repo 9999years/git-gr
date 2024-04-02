@@ -55,7 +55,9 @@ impl DependsOnGraph {
             let change = queue.pop_back().expect("Length is checked");
             let dependencies = gerrit
                 .dependencies(change)
-                .wrap_err("Failed to get change dependencies")?;
+                .wrap_err("Failed to get change dependencies")?
+                .filter_unmerged(&gerrit)?;
+            tracing::debug!(?dependencies, "Found change dependencies");
             for depends_on in dependencies.depends_on_numbers() {
                 dependency_graph.insert(DependsOnRelation { change, depends_on })?;
                 if !seen.contains(&depends_on) {

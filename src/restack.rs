@@ -6,6 +6,7 @@ use std::io::BufReader;
 use std::io::BufWriter;
 
 use camino::Utf8PathBuf;
+use command_error::CommandExt;
 use fs_err as fs;
 use fs_err::File;
 use miette::miette;
@@ -13,17 +14,22 @@ use miette::Context;
 use miette::IntoDiagnostic;
 
 use crate::change_number::ChangeNumber;
-use crate::gerrit::Gerrit;
+use crate::format_bulleted_list;
 use crate::gerrit::GerritGitRemote;
 use crate::git::Git;
+use crate::restack_push::PushTodo;
+
+const CONTINUE_MESSAGE: &str = "Fix conflicts and then use `gayrat restack continue` to keep going. Alternatively, use `gayrat restack abort` to quit the restack.";
 
 /// TODO: Add versioning?
 #[derive(serde::Deserialize, serde::Serialize, Debug, Clone, Default)]
-struct RestackTodo {
+pub struct RestackTodo {
     /// Rebase steps left to perform.
     steps: VecDeque<Rebase>,
     /// Map from change numbers to updated commit hashes.
-    refs: BTreeMap<ChangeNumber, String>,
+    pub refs: BTreeMap<ChangeNumber, RefUpdate>,
+    /// Rebase step in progress, if any.
+    in_progress: Option<Rebase>,
 }
 
 impl RestackTodo {
@@ -36,7 +42,7 @@ impl RestackTodo {
         Ok(())
     }
 
-    pub fn perform_step(
+    fn perform_step(
         &mut self,
         step: &Rebase,
         gerrit: &GerritGitRemote,
@@ -50,25 +56,39 @@ impl RestackTodo {
                     git.fetch(remote)?;
                     *fetched = true;
                 }
-                git.fetch(&gerrit.remote)?;
+                gerrit.checkout_cl_quiet(step.change)?;
+                let old_head = git.get_head()?;
                 // Change is root, rebase on target branch.
                 let change_display = step.change.pretty(gerrit)?;
                 tracing::info!("Restacking change {} on {}", change_display, branch);
                 git.rebase(&format!("{}/{}", remote, branch))?;
-                self.refs.insert(step.change, git.get_head()?);
+                self.refs.insert(
+                    step.change,
+                    RefUpdate {
+                        old: old_head,
+                        new: git.get_head()?,
+                    },
+                );
             }
             RebaseOnto::Change(parent) => {
                 let change_display = step.change.pretty(gerrit)?;
                 // Change is not root, rebase on parent.
                 let parent_ref = match self.refs.get(parent) {
-                    Some(parent_ref) => parent_ref.to_owned(),
-                    None => gerrit.fetch_cl(*parent)?,
+                    Some(update) => update.new.to_owned(),
+                    None => gerrit.fetch_cl_quiet(*parent)?,
                 };
                 let parent_display = parent.pretty(gerrit)?;
-                gerrit.checkout_cl(step.change)?;
+                gerrit.checkout_cl_quiet(step.change)?;
+                let old_head = git.get_head()?;
                 tracing::info!("Restacking change {} on {}", change_display, parent_display);
                 git.rebase(&parent_ref)?;
-                self.refs.insert(step.change, git.get_head()?);
+                self.refs.insert(
+                    step.change,
+                    RefUpdate {
+                        old: old_head,
+                        new: git.get_head()?,
+                    },
+                );
             }
         }
 
@@ -103,36 +123,88 @@ impl Display for RebaseOnto {
     }
 }
 
-pub fn restack(gerrit: &Gerrit) -> miette::Result<()> {
+#[derive(serde::Deserialize, serde::Serialize, Debug, Clone, Default)]
+pub struct RefUpdate {
+    pub old: String,
+    pub new: String,
+}
+
+impl RefUpdate {
+    pub fn has_change(&self) -> bool {
+        self.old != self.new
+    }
+}
+
+pub fn restack(gerrit: &GerritGitRemote) -> miette::Result<()> {
     let git = gerrit.git();
-    let gerrit = git.gerrit(None)?;
     let mut fetched = false;
-    let mut todo = get_or_create_todo(&gerrit)?;
+    let mut todo = get_or_create_todo(gerrit)?;
+
+    match &todo.in_progress {
+        Some(step) => {
+            tracing::info!("Continuing to restack {step}");
+            match git
+                .command()
+                .args(["rebase", "--continue"])
+                .status_checked()
+                .map(|_| ())
+                .into_diagnostic()
+                .wrap_err(CONTINUE_MESSAGE)
+            {
+                Ok(()) => {
+                    todo.write(&git)?;
+                }
+                error @ Err(_) => {
+                    return error;
+                }
+            }
+        }
+        None => {}
+    }
 
     while !todo.steps.is_empty() {
         let step = todo.steps.pop_front().expect("Length is checked");
 
-        match todo
-            .perform_step(&step, &gerrit, &mut fetched)
-            .wrap_err_with(|| format!("Failed to restack {}", step))
-        {
+        let step_result = todo
+            .perform_step(&step, gerrit, &mut fetched)
+            .wrap_err_with(|| format!("Failed to restack {step}"));
+        match step_result {
             Ok(()) => {
                 todo.write(&git)?;
             }
-            Err(error) => {
-                tracing::error!("{error:?}");
-                tracing::info!("Fix conflicts, and then use `gayrat continue` to keep going. Alternatively, use `gayrat abort` to quit the restack.");
+            error @ Err(_) => {
+                todo.in_progress = Some(step);
+                todo.write(&git)?;
+                return error.wrap_err(CONTINUE_MESSAGE);
             }
         }
     }
 
     fs::remove_file(todo_path(&git)?).into_diagnostic()?;
 
+    let todo = PushTodo::from(todo);
+    todo.write(&git)?;
+    tracing::info!(
+        "Restacked changes:\n{}",
+        format_bulleted_list(todo.refs.iter().map(|(change, RefUpdate { old, new })| {
+            format!("{}: {}..{}", change, &old[..8], &new[..8],)
+        }))
+    );
+    tracing::info!("Restack completed but changes have not been pushed; run `gayrat restack push` to sync changes with the remote.");
+
     Ok(())
 }
 
 pub fn restack_abort(git: &Git) -> miette::Result<()> {
-    fs::remove_file(todo_path(git)?).into_diagnostic()
+    let todo_path = todo_path(git)?;
+    if todo_path.exists() {
+        fs::remove_file(todo_path).into_diagnostic()?;
+    }
+    git.command()
+        .args(["rebase", "--abort"])
+        .status_checked()
+        .into_diagnostic()?;
+    Ok(())
 }
 
 fn todo_path(git: &Git) -> miette::Result<Utf8PathBuf> {
@@ -172,23 +244,27 @@ fn create_todo(gerrit: &GerritGitRemote) -> miette::Result<RestackTodo> {
             if roots.contains(&change) {
                 // Change is root, rebase on target branch.
                 let change = gerrit.get_current_patch_set(change)?;
-                todo.steps.push_back(Rebase {
+                let step = Rebase {
                     change: change.change.number,
                     onto: RebaseOnto::Branch {
                         remote: gerrit.remote.clone(),
                         branch: change.change.branch,
                     },
-                });
+                };
+                tracing::debug!(%step, "Discovered rebase step");
+                todo.steps.push_back(step);
             } else {
                 // Change is not root, rebase on parent.
                 let parent = chain.dependencies.depends_on(change).ok_or_else(|| {
                     miette!("Change does not have parent to rebase onto: {change}")
                 })?;
 
-                todo.steps.push_back(Rebase {
+                let step = Rebase {
                     change,
                     onto: RebaseOnto::Change(parent),
-                });
+                };
+                tracing::debug!(%step, "Discovered rebase step");
+                todo.steps.push_back(step);
             }
 
             let reverse_dependencies = chain.dependencies.needed_by(change);
