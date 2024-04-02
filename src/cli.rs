@@ -32,6 +32,10 @@ pub enum Command {
         /// Defaults to the default upstream branch.
         #[arg()]
         target: Option<String>,
+
+        /// Push and then restack changes that depend on the branch.
+        #[arg(long)]
+        restack: bool,
     },
     /// Checkout a CL.
     Checkout {

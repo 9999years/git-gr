@@ -311,12 +311,26 @@ impl GerritGitRemote {
         Ok(())
     }
 
-    pub fn restack(&self) -> miette::Result<()> {
-        restack(self)
+    pub fn push(&self, branch: Option<String>, target: Option<String>) -> miette::Result<()> {
+        let git = self.git();
+        let target = match target {
+            Some(target) => target,
+            None => git.default_branch(&self.remote)?,
+        };
+        let branch = match branch {
+            Some(branch) => branch,
+            None => "HEAD".to_owned(),
+        };
+        git.gerrit_push(&self.remote, &branch, &target)?;
+        Ok(())
+    }
+
+    pub fn restack(&self, branch: &str) -> miette::Result<()> {
+        restack(self, branch)
     }
 
     pub fn restack_continue(&self) -> miette::Result<()> {
-        self.restack()
+        self.restack("HEAD")
     }
 
     pub fn restack_push(&self) -> miette::Result<()> {

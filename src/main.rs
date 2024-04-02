@@ -28,24 +28,29 @@ use git::Git;
 use install_tracing::install_tracing;
 use miette::Context;
 use miette::IntoDiagnostic;
+use restack::create_todo;
 
 fn main() -> miette::Result<()> {
     let opts = Opts::parse();
     install_tracing(&opts.log)?;
 
     match opts.command {
-        cli::Command::Push { branch, target } => {
+        cli::Command::Push {
+            branch,
+            target,
+            restack,
+        } => {
             let git = Git::new();
             let gerrit = git.gerrit(None)?;
-            let target = match target {
-                Some(target) => target,
-                None => git.default_branch(&gerrit.remote)?,
-            };
-            let branch = match branch {
-                Some(branch) => branch,
-                None => "HEAD".to_owned(),
-            };
-            git.gerrit_push(&gerrit.remote, &branch, &target)?;
+            if restack {
+                let branch_str = branch.as_deref().unwrap_or("HEAD");
+                let todo = create_todo(&gerrit, branch_str)?;
+                todo.write(&git)?;
+                gerrit.push(branch.clone(), target)?;
+                gerrit.restack(branch_str)?;
+            } else {
+                gerrit.push(branch, target)?;
+            }
         }
         cli::Command::Checkout { patchset, number } => {
             let git = Git::new();
@@ -168,7 +173,7 @@ fn main() -> miette::Result<()> {
             let gerrit = git.gerrit(None)?;
             match command {
                 None => {
-                    gerrit.restack()?;
+                    gerrit.restack("HEAD")?;
                 }
                 Some(command) => match command {
                     cli::Restack::Continue => {

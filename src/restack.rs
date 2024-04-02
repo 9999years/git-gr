@@ -135,7 +135,7 @@ impl RefUpdate {
     }
 }
 
-pub fn restack(gerrit: &GerritGitRemote) -> miette::Result<()> {
+pub fn restack(gerrit: &GerritGitRemote, branch: &str) -> miette::Result<()> {
     let git = gerrit.git();
     let mut fetched = false;
     let mut todo = get_or_create_todo(gerrit)?;
@@ -224,14 +224,19 @@ fn get_or_create_todo(gerrit: &GerritGitRemote) -> miette::Result<RestackTodo> {
             .into_diagnostic()
             .wrap_err_with(|| format!("Failed to read restack todo from `{todo_path}`; remove it to abort the restack attempt"))
     } else {
-        create_todo(gerrit)
+        create_todo(gerrit, "HEAD")
     }
 }
 
-fn create_todo(gerrit: &GerritGitRemote) -> miette::Result<RestackTodo> {
+pub fn create_todo(gerrit: &GerritGitRemote, branch: &str) -> miette::Result<RestackTodo> {
     let git = gerrit.git();
+    let todo_path = todo_path(&git)?;
+    if todo_path.exists() {
+        return Err(miette!("Restack todo already exists at `{todo_path}`"));
+    }
+
     let change_id = git
-        .change_id("HEAD")
+        .change_id(branch)
         .wrap_err("Failed to get Change-Id for HEAD")?;
     let mut chain = gerrit.dependency_graph(&change_id)?;
     let mut todo = RestackTodo::default();
