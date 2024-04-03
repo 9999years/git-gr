@@ -102,9 +102,9 @@ jobs:
       - name: Create macOS universal executable
         if: runner.os == 'macOS'
         run: |
-          lipo -create -output target/release/gayrat-macos \
-            target/x86_64-apple-darwin/release/gayrat \
-            target/aarch64-apple-darwin/release/gayrat
+          lipo -create -output target/release/git-gr-macos \
+            target/x86_64-apple-darwin/release/git-gr \
+            target/aarch64-apple-darwin/release/git-gr
 
       - name: Build (Linux, x86_64)
         if: runner.os == 'Linux'
@@ -126,10 +126,10 @@ jobs:
         if: runner.os == 'Linux'
         run: |
           mkdir -p target/release
-          mv target/x86_64-unknown-linux-musl/release/gayrat \
-             target/release/gayrat-x86_64-linux
-          mv target/aarch64-unknown-linux-musl/release/gayrat \
-             target/release/gayrat-aarch64-linux
+          mv target/x86_64-unknown-linux-musl/release/git-gr \
+             target/release/git-gr-x86_64-linux
+          mv target/aarch64-unknown-linux-musl/release/git-gr \
+             target/release/git-gr-aarch64-linux
 
       - name: Upload macOS executable
         uses: actions/upload-artifact@v3
@@ -137,7 +137,7 @@ jobs:
         with:
           name: macos
           path: |
-            target/release/gayrat-macos
+            target/release/git-gr-macos
 
       - name: Upload Linux executables
         uses: actions/upload-artifact@v4
@@ -145,8 +145,8 @@ jobs:
         with:
           name: macos
           path: |
-            target/release/gayrat-x86_64-linux
-            target/release/gayrat-aarch64-linux
+            target/release/git-gr-x86_64-linux
+            target/release/git-gr-aarch64-linux
 
       - name: Publish to crates.io
         if: runner.os == 'Linux'

@@ -42,25 +42,25 @@
     };
 
   checks = {
-    gayrat-nextest = craneLib.cargoNextest (commonArgs
+    git-gr-nextest = craneLib.cargoNextest (commonArgs
       // {
         NEXTEST_HIDE_PROGRESS_BAR = "true";
       });
-    gayrat-doctest = craneLib.cargoTest (commonArgs
+    git-gr-doctest = craneLib.cargoTest (commonArgs
       // {
         cargoTestArgs = "--doc";
       });
-    gayrat-clippy = craneLib.cargoClippy (commonArgs
+    git-gr-clippy = craneLib.cargoClippy (commonArgs
       // {
         cargoClippyExtraArgs = "--all-targets -- --deny warnings";
       });
-    gayrat-rustdoc = craneLib.cargoDoc (commonArgs
+    git-gr-rustdoc = craneLib.cargoDoc (commonArgs
       // {
         cargoDocExtraArgs = "--document-private-items";
         RUSTDOCFLAGS = "-D warnings";
       });
-    gayrat-fmt = craneLib.cargoFmt commonArgs;
-    gayrat-audit = craneLib.cargoAudit (commonArgs
+    git-gr-fmt = craneLib.cargoFmt commonArgs;
+    git-gr-audit = craneLib.cargoAudit (commonArgs
       // {
         inherit advisory-db;
       });
