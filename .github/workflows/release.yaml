@@ -167,7 +167,7 @@ jobs:
       pull-requests: write
     steps:
       - name: Tag the release
-        uses: mathieudutour/github-tag-action@v6.0
+        uses: mathieudutour/github-tag-action@v6.2
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}
           commit_sha: ${{ github.event.pull_request.merge_commit_sha }}
