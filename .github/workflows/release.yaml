@@ -143,7 +143,7 @@ jobs:
         uses: actions/upload-artifact@v4
         if: runner.os == 'Linux'
         with:
-          name: macos
+          name: linux
           path: |
             target/release/git-gr-x86_64-linux
             target/release/git-gr-aarch64-linux
@@ -199,7 +199,8 @@ jobs:
           generate_release_notes: true
           tag_name: v${{ needs.version.outputs.version }}
           files: |
-            documentation/*
+            linux/*
+            macos/*
 
       - name: Comment on PR with link to the release
         uses: peter-evans/create-or-update-comment@v4
