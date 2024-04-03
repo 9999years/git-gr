@@ -3,6 +3,9 @@ use std::fmt::Display;
 use clap::builder::RangedU64ValueParser;
 use clap::builder::TypedValueParser;
 use clap::builder::ValueParserFactory;
+use owo_colors::OwoColorize;
+use owo_colors::Stream::Stderr;
+use owo_colors::Style;
 
 use crate::gerrit::Gerrit;
 
@@ -38,10 +41,15 @@ impl ChangeNumber {
     }
 
     pub fn pretty(&self, gerrit: &Gerrit) -> miette::Result<String> {
-        Ok(match gerrit.get_change(*self)?.subject {
-            Some(subject) => format!("{} ({})", self, subject),
-            None => self.to_string(),
-        })
+        let subject = gerrit.get_change(*self)?.subject;
+        Ok(format!(
+            "{}{}",
+            self.if_supports_color(Stderr, |change| Style::new().bold().green().style(change)),
+            subject
+                .map(|subject| format!(" ({subject})"))
+                .unwrap_or_default()
+                .if_supports_color(Stderr, |subject| Style::new().dimmed().style(subject))
+        ))
     }
 }
 

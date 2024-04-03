@@ -12,7 +12,7 @@ pub struct Opts {
     /// except the level are optional.
     ///
     /// Try `debug` or `trace`.
-    #[arg(long, default_value = "info", env = "GAYRAT_LOG")]
+    #[arg(long, default_value = "info", env = "GIT_GR_LOG")]
     pub log: String,
 
     #[command(subcommand)]

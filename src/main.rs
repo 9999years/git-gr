@@ -1,6 +1,5 @@
 mod approval;
 mod author;
-mod chain;
 mod change_id;
 mod change_number;
 mod cli;
@@ -16,6 +15,7 @@ mod query_result;
 mod restack;
 mod restack_push;
 mod tmpdir;
+mod unicode_tree;
 
 use calm_io::stdoutln;
 use clap::CommandFactory;
