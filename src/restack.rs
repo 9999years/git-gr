@@ -14,7 +14,7 @@ use miette::Context;
 use miette::IntoDiagnostic;
 
 use crate::change_number::ChangeNumber;
-use crate::depends_on::DependsOnGraph;
+use crate::dependency_graph::DependencyGraph;
 use crate::gerrit::GerritGitRemote;
 use crate::git::Git;
 use crate::restack_push::PushTodo;
@@ -24,7 +24,7 @@ const CONTINUE_MESSAGE: &str = "Fix conflicts and then use `git-gr restack conti
 /// TODO: Add versioning?
 #[derive(serde::Deserialize, serde::Serialize, Debug, Clone)]
 pub struct RestackTodo {
-    pub graph: DependsOnGraph,
+    pub graph: DependencyGraph,
     /// Restack steps left to perform.
     steps: VecDeque<Step>,
     /// Map from change numbers to updated commit hashes.

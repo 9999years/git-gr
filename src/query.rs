@@ -115,12 +115,7 @@ impl<'a> QueryOptions<'a> {
 
     /// Convert this query into CLI options, to be appended to `gerrit`.
     pub fn into_args(self) -> Vec<String> {
-        let mut args = vec![
-            "query".to_owned(),
-            self.query.to_string(),
-            "--format".to_owned(),
-            "json".to_owned(),
-        ];
+        let mut args = vec!["query".to_owned(), "--format".to_owned(), "json".to_owned()];
 
         if self.all_approvals {
             args.push("--all-approvals".to_owned());
@@ -156,6 +151,9 @@ impl<'a> QueryOptions<'a> {
         if self.submit_records {
             args.push("--submit-records".to_owned());
         }
+
+        args.push("--".to_owned());
+        args.push(self.query.to_string());
 
         args
     }

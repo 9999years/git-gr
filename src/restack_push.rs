@@ -11,7 +11,7 @@ use miette::Context;
 use miette::IntoDiagnostic;
 
 use crate::change_number::ChangeNumber;
-use crate::depends_on::DependsOnGraph;
+use crate::dependency_graph::DependencyGraph;
 use crate::gerrit::GerritGitRemote;
 use crate::git::Git;
 use crate::restack::RefUpdate;
@@ -19,7 +19,7 @@ use crate::restack::RestackTodo;
 
 #[derive(serde::Deserialize, serde::Serialize, Debug, Clone)]
 pub struct PushTodo {
-    pub graph: DependsOnGraph,
+    pub graph: DependencyGraph,
     /// Map from change numbers to updated commit hashes.
     pub refs: BTreeMap<ChangeNumber, RefUpdate>,
 }

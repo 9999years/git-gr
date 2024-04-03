@@ -79,6 +79,8 @@ pub enum Command {
         /// Directory to write man pages to.
         out_dir: camino::Utf8PathBuf,
     },
+    /// Query changes.
+    Query { query: String },
 }
 
 #[derive(Debug, Clone, Subcommand)]

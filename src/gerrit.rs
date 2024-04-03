@@ -3,6 +3,9 @@ use std::ops::DerefMut;
 use std::process::Command;
 use std::sync::OnceLock;
 
+use calm_io::stdoutln;
+use comfy_table::Attribute;
+use comfy_table::Cell;
 use command_error::CommandExt;
 use command_error::OutputContext;
 use miette::miette;
@@ -12,15 +15,16 @@ use regex::Regex;
 use serde::de::DeserializeOwned;
 use utf8_command::Utf8Output;
 
+use crate::change::Change;
 use crate::change_number::ChangeNumber;
-use crate::depends_on::DependsOnGraph;
+use crate::dependency_graph::DependencyGraph;
 use crate::format_bulleted_list;
 use crate::git::Git;
 use crate::query::Query;
 use crate::query::QueryOptions;
-use crate::query_result::Change;
 use crate::query_result::ChangeCurrentPatchSet;
 use crate::query_result::ChangeDependencies;
+use crate::query_result::ChangeSubmitRecords;
 use crate::query_result::QueryResult;
 use crate::restack::restack;
 use crate::restack::restack_abort;
@@ -174,10 +178,10 @@ impl Gerrit {
     pub fn dependency_graph<'a>(
         &self,
         change: impl Into<Query<'a>>,
-    ) -> miette::Result<DependsOnGraph> {
+    ) -> miette::Result<DependencyGraph> {
         let change = change.into();
         let change = self.get_change(change)?;
-        DependsOnGraph::traverse(self, change.number)
+        DependencyGraph::traverse(self, change.number)
     }
 
     fn cl_ref<'a>(&self, change: impl Into<Query<'a>>) -> miette::Result<String> {
@@ -336,6 +340,34 @@ impl Gerrit {
             }
         };
         self.checkout_cl(depends_on)?;
+        Ok(())
+    }
+
+    pub fn print_query(&self, query: String) -> miette::Result<()> {
+        let results = self
+            .query::<ChangeSubmitRecords>(QueryOptions::new(query).no_limit().submit_records())?;
+        let mut table = comfy_table::Table::new();
+        table
+            .load_preset(comfy_table::presets::NOTHING)
+            .set_content_arrangement(comfy_table::ContentArrangement::DynamicFullWidth);
+
+        for change in &results.changes {
+            table.add_row([
+                Cell::new(change.change.number).add_attribute(Attribute::Bold),
+                Cell::new(change.change.subject.clone().unwrap_or_default()),
+                Cell::new(change.change.owner.username.clone()),
+                change.change.status_cell(),
+                change.ready_cell(),
+            ]);
+        }
+
+        table
+            .column_mut(0)
+            .expect("First column exists")
+            .set_cell_alignment(comfy_table::CellAlignment::Right);
+
+        let _ = stdoutln!("{table}");
+
         Ok(())
     }
 }
