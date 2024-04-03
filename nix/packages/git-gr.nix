@@ -91,8 +91,8 @@
 
       nativeBuildInputs = commonArgs.nativeBuildInputs ++ [installShellFiles];
 
-      preFixup =
-        (commonArgs.preFixup or "")
+      postInstall =
+        (commonArgs.postInstall or "")
         + lib.optionalString can-run-git-gr ''
           manpages=$(mktemp -d)
           ${git-gr} manpages "$manpages"
@@ -117,8 +117,8 @@ in
       # Don't run tests; we'll do that in a separate derivation.
       doCheck = false;
 
-      preFixup =
-        (commonArgs.preFixup or "")
+      postInstall =
+        (commonArgs.postInstall or "")
         + ''
           cp -r ${git-gr-man}/share $out/share
         '';
