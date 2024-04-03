@@ -80,12 +80,12 @@ fn get_todo(gerrit: &GerritGitRemote) -> miette::Result<PushTodo> {
             .wrap_err_with(|| format!("Failed to read push todo from `{push_path}`"))
     } else {
         Err(miette!(
-            "Push todo path `{push_path}` does not exist; did you run `gayrat restack`?"
+            "Push todo path `{push_path}` does not exist; did you run `git-gr restack`?"
         ))
     }
 }
 
 fn push_path(git: &Git) -> miette::Result<Utf8PathBuf> {
     git.get_git_dir()
-        .map(|git_dir| git_dir.join("gayrat-push-todo.json"))
+        .map(|git_dir| git_dir.join("git-gr-push-todo.json"))
 }

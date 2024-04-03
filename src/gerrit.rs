@@ -102,7 +102,7 @@ impl Gerrit {
             &format!(
                 "ControlPath={}",
                 ssh_control_path(&format!(
-                    "gayrat-ssh-{}-{}-{}",
+                    "git-gr-ssh-{}-{}-{}",
                     self.username, self.host, self.port
                 ))
             ),
@@ -272,7 +272,7 @@ impl Gerrit {
             1 => needed_by.pop_first().expect("Length was checked"),
             _ => {
                 return Err(miette!(
-                        "Change {} is needed by multiple changes; use `gayrat checkout {}` to pick one:\n{}",
+                        "Change {} is needed by multiple changes; use `git-gr checkout {}` to pick one:\n{}",
                         dependencies.change.number,
                         dependencies.change.number,
                         format_bulleted_list(needed_by)
@@ -305,7 +305,7 @@ impl Gerrit {
                 1 => needed_by.pop_first().expect("Length was checked"),
                 _ => {
                     return Err(miette!(
-                        "Change {} is needed by multiple changes; use `gayrat checkout {}` to pick one:\n{}",
+                        "Change {} is needed by multiple changes; use `git-gr checkout {}` to pick one:\n{}",
                         next,
                         next,
                         format_bulleted_list(needed_by)
@@ -337,7 +337,7 @@ impl Gerrit {
             1 => depends_on.pop_first().expect("Length was checked"),
             _ => {
                 return Err(miette!(
-                        "Change {} depends on multiple changes, use `gayrat checkout {}` to pick one:\n{}",
+                        "Change {} depends on multiple changes, use `git-gr checkout {}` to pick one:\n{}",
                         dependencies.change.number,
                         dependencies.change.number,
                         format_bulleted_list(&depends_on)
@@ -385,7 +385,7 @@ impl GerritGitRemote {
             1 => depends_on.pop_first().expect("Length was checked"),
             _ => {
                 return Err(miette!(
-                        "Change {} depends on multiple changes, use `gayrat checkout {}` to pick one:\n{}",
+                        "Change {} depends on multiple changes, use `git-gr checkout {}` to pick one:\n{}",
                         dependencies.change.number,
                         dependencies.change.number,
                         format_bulleted_list(&depends_on)

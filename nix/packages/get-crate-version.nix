@@ -1,12 +1,12 @@
 {
   lib,
   writeShellApplication,
-  gayrat,
+  git-gr,
 }:
 writeShellApplication {
   name = "get-crate-version";
 
   text = ''
-    echo ${lib.escapeShellArg gayrat.version}
+    echo ${lib.escapeShellArg git-gr.version}
   '';
 }

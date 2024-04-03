@@ -19,7 +19,7 @@ use crate::gerrit::GerritGitRemote;
 use crate::git::Git;
 use crate::restack_push::PushTodo;
 
-const CONTINUE_MESSAGE: &str = "Fix conflicts and then use `gayrat restack continue` to keep going. Alternatively, use `gayrat restack abort` to quit the restack.";
+const CONTINUE_MESSAGE: &str = "Fix conflicts and then use `git-gr restack continue` to keep going. Alternatively, use `git-gr restack abort` to quit the restack.";
 
 /// TODO: Add versioning?
 #[derive(serde::Deserialize, serde::Serialize, Debug, Clone, Default)]
@@ -228,7 +228,7 @@ pub fn restack(gerrit: &GerritGitRemote, branch: &str) -> miette::Result<()> {
             "Restacked changes:\n{}",
             format_bulleted_list(displayed_changes)
         );
-        tracing::info!("Restack completed but changes have not been pushed; run `gayrat restack push` to sync changes with the remote.");
+        tracing::info!("Restack completed but changes have not been pushed; run `git-gr restack push` to sync changes with the remote.");
     }
 
     Ok(())
@@ -248,7 +248,7 @@ pub fn restack_abort(git: &Git) -> miette::Result<()> {
 
 fn todo_path(git: &Git) -> miette::Result<Utf8PathBuf> {
     git.get_git_dir()
-        .map(|git_dir| git_dir.join("gayrat-restack-todo.json"))
+        .map(|git_dir| git_dir.join("git-gr-restack-todo.json"))
 }
 
 fn get_or_create_todo(gerrit: &GerritGitRemote, branch: &str) -> miette::Result<RestackTodo> {

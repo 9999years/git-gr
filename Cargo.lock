@@ -216,7 +216,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "gayrat"
+name = "git-gr"
 version = "0.1.0"
 dependencies = [
  "calm_io",

@@ -36,7 +36,7 @@
     in
       (lib.filterAttrs (name: value: lib.isDerivation value) packages)
       // {
-        default = packages.gayrat;
+        default = packages.git-gr;
 
         # This lets us use `nix run .#cargo` to run Cargo commands without
         # loading the entire `nix develop` shell (which includes

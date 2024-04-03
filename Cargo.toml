@@ -1,10 +1,10 @@
 [package]
-name = "gayrat"
+name = "git-gr"
 version = "0.1.0"
 edition = "2021"
 authors = ["Rebecca Turner <rbt@sent.as>"]
 description = "A Gerrit CLI"
-repository = "https://github.com/9999years/gayrat"
+repository = "https://github.com/9999years/git-gr"
 license = "MIT"
 keywords = ["git", "gerrit"]
 categories = ["command-line-utilities"]
