@@ -9,13 +9,15 @@ use miette::Context;
 use miette::IntoDiagnostic;
 
 use crate::change_number::ChangeNumber;
+use crate::depends_on::DependsOnGraph;
 use crate::gerrit::GerritGitRemote;
 use crate::git::Git;
 use crate::restack::RefUpdate;
 use crate::restack::RestackTodo;
 
-#[derive(serde::Deserialize, serde::Serialize, Debug, Clone, Default)]
+#[derive(serde::Deserialize, serde::Serialize, Debug, Clone)]
 pub struct PushTodo {
+    pub graph: DependsOnGraph,
     /// Map from change numbers to updated commit hashes.
     pub refs: BTreeMap<ChangeNumber, RefUpdate>,
 }
@@ -31,7 +33,10 @@ impl From<RestackTodo> for PushTodo {
             }
         }
 
-        Self { refs }
+        Self {
+            refs,
+            graph: restack_todo.graph,
+        }
     }
 }
 
@@ -54,8 +59,7 @@ pub fn restack_push(gerrit: &GerritGitRemote) -> miette::Result<()> {
     let mut todo = get_todo(gerrit)?;
     let git = gerrit.git();
 
-    while !todo.refs.is_empty() {
-        let (change, RefUpdate { old, new }) = todo.refs.pop_first().expect("Length is checked");
+    while let Some((change, RefUpdate { old, new })) = todo.refs.pop_first() {
         tracing::info!(
             "Pushing change {}: {}..{}",
             change,

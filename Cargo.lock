@@ -245,9 +245,11 @@ dependencies = [
  "clap_mangen",
  "command-error",
  "fs-err",
+ "indoc",
  "itertools 0.12.1",
  "miette",
  "owo-colors 4.0.0",
+ "parking_lot",
  "pretty_assertions",
  "regex",
  "serde",
@@ -279,6 +281,12 @@ name = "hermit-abi"
 version = "0.3.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d77f7ec81a6d05a3abb01ab6eb7590f6083d08449fe5a1c8b1e620283546ccb7"
+
+[[package]]
+name = "indoc"
+version = "2.0.5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b248f5224d1d606005e02c97f5aa4e88eeb230488bcc03bc9ca4d7991399f2b5"
 
 [[package]]
 name = "io-lifetimes"
