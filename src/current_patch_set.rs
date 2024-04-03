@@ -4,6 +4,7 @@ use crate::author::Author;
 /// The current patch set in a Gerrit change.
 #[derive(serde::Deserialize, Debug)]
 #[serde(rename_all = "camelCase")]
+#[allow(dead_code)]
 pub struct CurrentPatchSet {
     /// Patch set number.
     pub number: u64,

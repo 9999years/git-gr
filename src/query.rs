@@ -43,7 +43,7 @@ impl<'a> From<String> for Query<'a> {
 
 impl<'a> From<&'a ChangeId> for Query<'a> {
     fn from(value: &'a ChangeId) -> Self {
-        Self::String(Cow::Borrowed(&value))
+        Self::String(Cow::Borrowed(value))
     }
 }
 
@@ -161,66 +161,77 @@ impl<'a> QueryOptions<'a> {
     }
 
     /// Include information about all patch sets and approvals.
+    #[allow(dead_code)]
     pub fn all_approvals(mut self) -> Self {
         self.all_approvals = true;
         self
     }
 
     /// Include all reviewers.
+    #[allow(dead_code)]
     pub fn all_reviewers(mut self) -> Self {
         self.all_reviewers = true;
         self
     }
 
     /// Include patch set and inline comments.
+    #[allow(dead_code)]
     pub fn comments(mut self) -> Self {
         self.comments = true;
         self
     }
 
     /// Include the full commit message for a change.
+    #[allow(dead_code)]
     pub fn commit_message(mut self) -> Self {
         self.commit_message = true;
         self
     }
 
     /// Include information about current patch set.
+    #[allow(dead_code)]
     pub fn current_patch_set(mut self) -> Self {
         self.current_patch_set = true;
         self
     }
 
     /// Include depends-on and needed-by information.
+    #[allow(dead_code)]
     pub fn dependencies(mut self) -> Self {
         self.dependencies = true;
         self
     }
 
     /// Include file list on patch sets.
+    #[allow(dead_code)]
     pub fn files(mut self) -> Self {
         self.files = true;
         self
     }
 
     /// Return all results, overriding the default limit.
+    #[allow(dead_code)]
     pub fn no_limit(mut self) -> Self {
         self.no_limit = true;
         self
     }
 
     /// Include information about all patch sets.
+    #[allow(dead_code)]
     pub fn patch_sets(mut self) -> Self {
         self.patch_sets = true;
         self
     }
 
     /// Number of changes to skip.
+    #[allow(dead_code)]
     pub fn start(mut self, start: usize) -> Self {
         self.start = start;
         self
     }
 
     /// Include submit and label status.
+    #[allow(dead_code)]
     pub fn submit_records(mut self) -> Self {
         self.submit_records = true;
         self

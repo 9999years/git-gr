@@ -52,6 +52,7 @@ where
 
 #[derive(serde::Deserialize, Debug)]
 #[serde(rename_all = "camelCase")]
+#[allow(dead_code)]
 pub struct QueryStatistics {
     row_count: usize,
     more_changes: bool,
@@ -68,7 +69,9 @@ pub struct Change {
     pub owner: Author,
     pub url: String,
     pub hashtags: Vec<String>,
+    #[allow(dead_code)]
     created_on: u64,
+    #[allow(dead_code)]
     last_updated: u64,
     pub open: bool,
     pub status: ChangeStatus,

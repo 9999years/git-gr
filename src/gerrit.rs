@@ -225,18 +225,6 @@ impl Gerrit {
         Ok(())
     }
 
-    /// Checkout a CL without printing output.
-    pub fn checkout_cl_quiet<'a>(&self, change: impl Into<Query<'a>>) -> miette::Result<()> {
-        let change = change.into();
-        let git_ref = self.fetch_cl_quiet(change)?;
-        let git = self.git();
-        git.command()
-            .args(["checkout", &git_ref])
-            .output_checked_utf8()
-            .into_diagnostic()?;
-        Ok(())
-    }
-
     /// Checkout a CL at a specific patchset.
     pub fn checkout_cl_patchset(&self, change: ChangeNumber, patchset: u32) -> miette::Result<()> {
         let git = self.git();

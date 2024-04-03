@@ -204,17 +204,6 @@ impl Git {
         Err(miette!("Failed to parse Gerrit configuration from Git remotes. Tried to parse these remotes:\n{}", format_bulleted_list(tried)))
     }
 
-    pub fn rebase(&self, onto: &str) -> miette::Result<()> {
-        tracing::debug!(head=%self.get_head()?, %onto, "Rebasing");
-        self.command()
-            .args(["rebase", onto])
-            .status_checked()
-            .map(|_| ())
-            .into_diagnostic()?;
-        tracing::debug!(new_head=%self.get_head()?, "Finished rebase");
-        Ok(())
-    }
-
     pub fn cherry_pick(&self, commitish: &str) -> miette::Result<()> {
         self.command()
             .args(["cherry-pick", "--ff", commitish])

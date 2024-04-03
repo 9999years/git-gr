@@ -1,5 +1,3 @@
-use miette::miette;
-
 mod approval;
 mod author;
 mod chain;
