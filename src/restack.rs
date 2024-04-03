@@ -74,8 +74,15 @@ impl RestackTodo {
                 let change_display = step.change.pretty(gerrit)?;
                 // Change is not root, rebase on parent.
                 let parent_ref = match self.refs.get(parent) {
-                    Some(update) => update.new.to_owned(),
-                    None => gerrit.fetch_cl_quiet(*parent)?,
+                    Some(update) => {
+                        tracing::debug!("Updated ref for {parent}: {update}");
+                        update.new.to_owned()
+                    }
+                    None => {
+                        let parent_ref = gerrit.fetch_cl_quiet(*parent)?;
+                        tracing::debug!("Fetched ref for {parent}: {}", &parent_ref[..8]);
+                        parent_ref
+                    }
                 };
                 let parent_display = parent.pretty(gerrit)?;
                 gerrit.checkout_cl_quiet(step.change)?;
@@ -135,14 +142,21 @@ impl RefUpdate {
     }
 }
 
+impl Display for RefUpdate {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}..{}", &self.old[..8], &self.new[..8],)
+    }
+}
+
 pub fn restack(gerrit: &GerritGitRemote, branch: &str) -> miette::Result<()> {
     let git = gerrit.git();
     let mut fetched = false;
-    let mut todo = get_or_create_todo(gerrit)?;
+    let mut todo = get_or_create_todo(gerrit, branch)?;
 
     match &todo.in_progress {
         Some(step) => {
             tracing::info!("Continuing to restack {step}");
+            let old_head = git.rev_parse("REBASE_HEAD")?;
             match git
                 .command()
                 .args(["rebase", "--continue"])
@@ -152,6 +166,13 @@ pub fn restack(gerrit: &GerritGitRemote, branch: &str) -> miette::Result<()> {
                 .wrap_err(CONTINUE_MESSAGE)
             {
                 Ok(()) => {
+                    todo.refs.insert(
+                        step.change,
+                        RefUpdate {
+                            old: old_head,
+                            new: git.get_head()?,
+                        },
+                    );
                     todo.write(&git)?;
                 }
                 error @ Err(_) => {
@@ -216,7 +237,7 @@ fn todo_path(git: &Git) -> miette::Result<Utf8PathBuf> {
         .map(|git_dir| git_dir.join("gayrat-restack-todo.json"))
 }
 
-fn get_or_create_todo(gerrit: &GerritGitRemote) -> miette::Result<RestackTodo> {
+fn get_or_create_todo(gerrit: &GerritGitRemote, branch: &str) -> miette::Result<RestackTodo> {
     let todo_path = todo_path(&gerrit.git())?;
 
     if todo_path.exists() {
@@ -224,7 +245,7 @@ fn get_or_create_todo(gerrit: &GerritGitRemote) -> miette::Result<RestackTodo> {
             .into_diagnostic()
             .wrap_err_with(|| format!("Failed to read restack todo from `{todo_path}`; remove it to abort the restack attempt"))
     } else {
-        create_todo(gerrit, "HEAD")
+        create_todo(gerrit, branch)
     }
 }
 

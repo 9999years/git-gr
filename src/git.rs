@@ -205,11 +205,14 @@ impl Git {
     }
 
     pub fn rebase(&self, onto: &str) -> miette::Result<()> {
+        tracing::debug!(head=%self.get_head()?, %onto, "Rebasing");
         self.command()
             .args(["rebase", onto])
             .status_checked()
             .map(|_| ())
-            .into_diagnostic()
+            .into_diagnostic()?;
+        tracing::debug!(new_head=%self.get_head()?, "Finished rebase");
+        Ok(())
     }
 
     pub fn fetch(&self, remote: &str) -> miette::Result<()> {
