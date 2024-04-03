@@ -121,6 +121,8 @@ in
         (commonArgs.postInstall or "")
         + ''
           cp -r ${git-gr-man}/share $out/share
+          # What:
+          chmod -R +w $out/share
         '';
 
       passthru = {
