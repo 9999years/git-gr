@@ -24,12 +24,12 @@ const CONTINUE_MESSAGE: &str = "Fix conflicts and then use `gayrat restack conti
 /// TODO: Add versioning?
 #[derive(serde::Deserialize, serde::Serialize, Debug, Clone, Default)]
 pub struct RestackTodo {
-    /// Rebase steps left to perform.
-    steps: VecDeque<Rebase>,
+    /// Restack steps left to perform.
+    steps: VecDeque<Step>,
     /// Map from change numbers to updated commit hashes.
     pub refs: BTreeMap<ChangeNumber, RefUpdate>,
-    /// Rebase step in progress, if any.
-    in_progress: Option<Rebase>,
+    /// Restakc step in progress, if any.
+    in_progress: Option<Step>,
 }
 
 impl RestackTodo {
@@ -44,24 +44,26 @@ impl RestackTodo {
 
     fn perform_step(
         &mut self,
-        step: &Rebase,
+        step: &Step,
         gerrit: &GerritGitRemote,
         fetched: &mut bool,
     ) -> miette::Result<()> {
         let git = gerrit.git();
 
         match &step.onto {
-            RebaseOnto::Branch { remote, branch } => {
+            RestackOnto::Branch { remote, branch } => {
+                // Change is root, cherry-pick on target branch.
                 if !*fetched {
                     git.fetch(remote)?;
                     *fetched = true;
                 }
-                gerrit.checkout_cl_quiet(step.change)?;
-                let old_head = git.get_head()?;
-                // Change is root, rebase on target branch.
+                let parent = format!("{}/{}", remote, branch);
+                git.checkout_quiet(&parent)?;
+                git.detach_head()?;
+                let old_head = gerrit.fetch_cl_quiet(step.change)?;
                 let change_display = step.change.pretty(gerrit)?;
                 tracing::info!("Restacking change {} on {}", change_display, branch);
-                git.rebase(&format!("{}/{}", remote, branch))?;
+                git.cherry_pick(&old_head)?;
                 self.refs.insert(
                     step.change,
                     RefUpdate {
@@ -70,9 +72,9 @@ impl RestackTodo {
                     },
                 );
             }
-            RebaseOnto::Change(parent) => {
+            RestackOnto::Change(parent) => {
                 let change_display = step.change.pretty(gerrit)?;
-                // Change is not root, rebase on parent.
+                // Change is not root, cherry-pick on parent.
                 let parent_ref = match self.refs.get(parent) {
                     Some(update) => {
                         tracing::debug!("Updated ref for {parent}: {update}");
@@ -85,10 +87,10 @@ impl RestackTodo {
                     }
                 };
                 let parent_display = parent.pretty(gerrit)?;
-                gerrit.checkout_cl_quiet(step.change)?;
-                let old_head = git.get_head()?;
+                git.checkout(&parent_ref)?;
+                let old_head = gerrit.fetch_cl_quiet(step.change)?;
                 tracing::info!("Restacking change {} on {}", change_display, parent_display);
-                git.rebase(&parent_ref)?;
+                git.cherry_pick(&old_head)?;
                 self.refs.insert(
                     step.change,
                     RefUpdate {
@@ -104,28 +106,28 @@ impl RestackTodo {
 }
 
 #[derive(serde::Deserialize, serde::Serialize, Debug, Clone)]
-struct Rebase {
+struct Step {
     change: ChangeNumber,
-    onto: RebaseOnto,
+    onto: RestackOnto,
 }
 
-impl Display for Rebase {
+impl Display for Step {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{} onto {}", self.change, self.onto)
     }
 }
 
 #[derive(serde::Deserialize, serde::Serialize, Debug, Clone)]
-enum RebaseOnto {
+enum RestackOnto {
     Branch { remote: String, branch: String },
     Change(ChangeNumber),
 }
 
-impl Display for RebaseOnto {
+impl Display for RestackOnto {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            RebaseOnto::Branch { branch, .. } => branch.fmt(f),
-            RebaseOnto::Change(change) => change.fmt(f),
+            RestackOnto::Branch { branch, .. } => branch.fmt(f),
+            RestackOnto::Change(change) => change.fmt(f),
         }
     }
 }
@@ -156,10 +158,10 @@ pub fn restack(gerrit: &GerritGitRemote, branch: &str) -> miette::Result<()> {
     match &todo.in_progress {
         Some(step) => {
             tracing::info!("Continuing to restack {step}");
-            let old_head = git.rev_parse("REBASE_HEAD")?;
+            let old_head = git.rev_parse("CHERRY_PICK_HEAD")?;
             match git
                 .command()
-                .args(["rebase", "--continue"])
+                .args(["cherry-pick", "--continue"])
                 .status_checked()
                 .map(|_| ())
                 .into_diagnostic()
@@ -208,11 +210,23 @@ pub fn restack(gerrit: &GerritGitRemote, branch: &str) -> miette::Result<()> {
         tracing::info!("Restack completed; no changes");
     } else {
         todo.write(&git)?;
+        // TODO: Toposort these changes or print as tree.
+        let mut displayed_changes = Vec::new();
+        for (change, update) in &todo.refs {
+            let change = gerrit.get_change(*change)?;
+            displayed_changes.push(format!(
+                "{}: {}{}",
+                change.number,
+                update,
+                change
+                    .subject
+                    .map(|subject| format!(" ({subject})"))
+                    .unwrap_or_default()
+            ));
+        }
         tracing::info!(
             "Restacked changes:\n{}",
-            format_bulleted_list(todo.refs.iter().map(|(change, RefUpdate { old, new })| {
-                format!("{}: {}..{}", change, &old[..8], &new[..8],)
-            }))
+            format_bulleted_list(displayed_changes)
         );
         tracing::info!("Restack completed but changes have not been pushed; run `gayrat restack push` to sync changes with the remote.");
     }
@@ -226,7 +240,7 @@ pub fn restack_abort(git: &Git) -> miette::Result<()> {
         fs::remove_file(todo_path).into_diagnostic()?;
     }
     git.command()
-        .args(["rebase", "--abort"])
+        .args(["cherry-pick", "--abort"])
         .status_checked()
         .into_diagnostic()?;
     Ok(())
@@ -272,28 +286,29 @@ pub fn create_todo(gerrit: &GerritGitRemote, branch: &str) -> miette::Result<Res
             let change = queue.pop_back().expect("Length is checked");
 
             if roots.contains(&change) {
-                // Change is root, rebase on target branch.
+                // Change is root, cherry-pick on target branch.
                 let change = gerrit.get_current_patch_set(change)?;
-                let step = Rebase {
+                let step = Step {
                     change: change.change.number,
-                    onto: RebaseOnto::Branch {
+                    onto: RestackOnto::Branch {
                         remote: gerrit.remote.clone(),
                         branch: change.change.branch,
                     },
                 };
-                tracing::debug!(%step, "Discovered rebase step");
+                tracing::debug!(%step, "Discovered restack step");
                 todo.steps.push_back(step);
             } else {
-                // Change is not root, rebase on parent.
-                let parent = chain.dependencies.depends_on(change).ok_or_else(|| {
-                    miette!("Change does not have parent to rebase onto: {change}")
-                })?;
+                // Change is not root, cherry-pick on parent.
+                let parent = chain
+                    .dependencies
+                    .depends_on(change)
+                    .ok_or_else(|| miette!("Change does not have parent: {change}"))?;
 
-                let step = Rebase {
+                let step = Step {
                     change,
-                    onto: RebaseOnto::Change(parent),
+                    onto: RestackOnto::Change(parent),
                 };
-                tracing::debug!(%step, "Discovered rebase step");
+                tracing::debug!(%step, "Discovered restack step");
                 todo.steps.push_back(step);
             }
 

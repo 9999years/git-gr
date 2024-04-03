@@ -215,6 +215,15 @@ impl Git {
         Ok(())
     }
 
+    pub fn cherry_pick(&self, commitish: &str) -> miette::Result<()> {
+        self.command()
+            .args(["cherry-pick", "--ff", commitish])
+            .status_checked()
+            .map(|_| ())
+            .into_diagnostic()?;
+        Ok(())
+    }
+
     pub fn fetch(&self, remote: &str) -> miette::Result<()> {
         self.command()
             .args(["fetch", remote])
@@ -229,6 +238,22 @@ impl Git {
             .status_checked()
             .map(|_| ())
             .into_diagnostic()
+    }
+
+    pub fn checkout_quiet(&self, commitish: &str) -> miette::Result<()> {
+        self.command()
+            .args(["checkout", commitish])
+            .output_checked_utf8()
+            .map(|_| ())
+            .into_diagnostic()
+    }
+
+    pub fn detach_head(&self) -> miette::Result<()> {
+        self.command()
+            .args(["checkout", "--detach"])
+            .output_checked_utf8()
+            .into_diagnostic()?;
+        Ok(())
     }
 
     /// Get the `HEAD` commit hash.
