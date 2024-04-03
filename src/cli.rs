@@ -68,6 +68,17 @@ pub enum Command {
         /// Arguments to pass to `gerrit`.
         args: Vec<String>,
     },
+    /// Generate shell completions.
+    Completions {
+        /// Shell to generate completions for.
+        shell: clap_complete::shells::Shell,
+    },
+    /// Generate man pages.
+    #[cfg(feature = "clap_mangen")]
+    Manpages {
+        /// Directory to write man pages to.
+        out_dir: camino::Utf8PathBuf,
+    },
 }
 
 #[derive(Debug, Clone, Subcommand)]
