@@ -12,8 +12,8 @@ use regex::Regex;
 use serde::de::DeserializeOwned;
 use utf8_command::Utf8Output;
 
-use crate::chain::Chain;
 use crate::change_number::ChangeNumber;
+use crate::depends_on::DependsOnGraph;
 use crate::format_bulleted_list;
 use crate::git::Git;
 use crate::query::Query;
@@ -171,10 +171,13 @@ impl Gerrit {
             .ok_or_else(|| miette!("Didn't find change {change}"))
     }
 
-    pub fn dependency_graph<'a>(&self, change: impl Into<Query<'a>>) -> miette::Result<Chain> {
+    pub fn dependency_graph<'a>(
+        &self,
+        change: impl Into<Query<'a>>,
+    ) -> miette::Result<DependsOnGraph> {
         let change = change.into();
         let change = self.get_change(change)?;
-        Chain::new(self, change.number)
+        DependsOnGraph::traverse(self, change.number)
     }
 
     fn cl_ref<'a>(&self, change: impl Into<Query<'a>>) -> miette::Result<String> {

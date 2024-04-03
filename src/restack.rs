@@ -14,7 +14,7 @@ use miette::Context;
 use miette::IntoDiagnostic;
 
 use crate::change_number::ChangeNumber;
-use crate::format_bulleted_list;
+use crate::depends_on::DependsOnGraph;
 use crate::gerrit::GerritGitRemote;
 use crate::git::Git;
 use crate::restack_push::PushTodo;
@@ -22,13 +22,14 @@ use crate::restack_push::PushTodo;
 const CONTINUE_MESSAGE: &str = "Fix conflicts and then use `git-gr restack continue` to keep going. Alternatively, use `git-gr restack abort` to quit the restack.";
 
 /// TODO: Add versioning?
-#[derive(serde::Deserialize, serde::Serialize, Debug, Clone, Default)]
+#[derive(serde::Deserialize, serde::Serialize, Debug, Clone)]
 pub struct RestackTodo {
+    pub graph: DependsOnGraph,
     /// Restack steps left to perform.
     steps: VecDeque<Step>,
     /// Map from change numbers to updated commit hashes.
     pub refs: BTreeMap<ChangeNumber, RefUpdate>,
-    /// Restakc step in progress, if any.
+    /// Restack step in progress, if any.
     in_progress: Option<Step>,
 }
 
@@ -185,9 +186,12 @@ pub fn restack(gerrit: &GerritGitRemote, branch: &str) -> miette::Result<()> {
         None => {}
     }
 
-    while !todo.steps.is_empty() {
-        let step = todo.steps.pop_front().expect("Length is checked");
+    tracing::info!(
+        "Restacking changes:\n{}",
+        todo.graph.format_tree(gerrit, |_| Ok(Vec::new()))?
+    );
 
+    while let Some(step) = todo.steps.pop_front() {
         let step_result = todo
             .perform_step(&step, gerrit, &mut fetched)
             .wrap_err_with(|| format!("Failed to restack {step}"));
@@ -205,28 +209,21 @@ pub fn restack(gerrit: &GerritGitRemote, branch: &str) -> miette::Result<()> {
 
     fs::remove_file(todo_path(&git)?).into_diagnostic()?;
 
-    let todo = PushTodo::from(todo);
+    let mut todo = PushTodo::from(todo);
     if todo.is_empty() {
-        tracing::info!("Restack completed; o changes");
+        tracing::info!("Restack completed; no changes");
     } else {
         todo.write(&git)?;
-        // TODO: Toposort these changes or print as tree.
-        let mut displayed_changes = Vec::new();
-        for (change, update) in &todo.refs {
-            let change = gerrit.get_change(*change)?;
-            displayed_changes.push(format!(
-                "{}: {}{}",
-                change.number,
-                update,
-                change
-                    .subject
-                    .map(|subject| format!(" ({subject})"))
-                    .unwrap_or_default()
-            ));
-        }
         tracing::info!(
             "Restacked changes:\n{}",
-            format_bulleted_list(displayed_changes)
+            todo.graph.format_tree(gerrit, |change| {
+                Ok(todo
+                    .refs
+                    .get(&change)
+                    .into_iter()
+                    .map(|update| update.to_string())
+                    .collect())
+            })?
         );
         tracing::info!("Restack completed but changes have not been pushed; run `git-gr restack push` to sync changes with the remote.");
     }
@@ -273,18 +270,21 @@ pub fn create_todo(gerrit: &GerritGitRemote, branch: &str) -> miette::Result<Res
     let change_id = git
         .change_id(branch)
         .wrap_err("Failed to get Change-Id for HEAD")?;
-    let mut chain = gerrit.dependency_graph(&change_id)?;
-    let mut todo = RestackTodo::default();
+    let mut todo = RestackTodo {
+        graph: gerrit.dependency_graph(&change_id)?,
+        steps: Default::default(),
+        refs: Default::default(),
+        in_progress: Default::default(),
+    };
 
-    let roots = chain.depends_on_roots();
+    let roots = todo.graph.depends_on_roots();
     for root in &roots {
         let mut seen = BTreeSet::new();
+        seen.insert(*root);
         let mut queue = VecDeque::new();
         queue.push_front(*root);
 
-        while !queue.is_empty() {
-            let change = queue.pop_back().expect("Length is checked");
-
+        while let Some(change) = queue.pop_back() {
             if roots.contains(&change) {
                 // Change is root, cherry-pick on target branch.
                 let change = gerrit.get_current_patch_set(change)?;
@@ -299,8 +299,8 @@ pub fn create_todo(gerrit: &GerritGitRemote, branch: &str) -> miette::Result<Res
                 todo.steps.push_back(step);
             } else {
                 // Change is not root, cherry-pick on parent.
-                let parent = chain
-                    .dependencies
+                let parent = todo
+                    .graph
                     .depends_on(change)
                     .ok_or_else(|| miette!("Change does not have parent: {change}"))?;
 
@@ -312,7 +312,7 @@ pub fn create_todo(gerrit: &GerritGitRemote, branch: &str) -> miette::Result<Res
                 todo.steps.push_back(step);
             }
 
-            let reverse_dependencies = chain.dependencies.needed_by(change);
+            let reverse_dependencies = todo.graph.needed_by(change);
 
             for needed_by in reverse_dependencies {
                 if !seen.contains(needed_by) {

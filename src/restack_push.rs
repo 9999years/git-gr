@@ -1,4 +1,6 @@
 use std::collections::BTreeMap;
+use std::collections::BTreeSet;
+use std::collections::VecDeque;
 use std::io::BufReader;
 use std::io::BufWriter;
 
@@ -9,13 +11,15 @@ use miette::Context;
 use miette::IntoDiagnostic;
 
 use crate::change_number::ChangeNumber;
+use crate::depends_on::DependsOnGraph;
 use crate::gerrit::GerritGitRemote;
 use crate::git::Git;
 use crate::restack::RefUpdate;
 use crate::restack::RestackTodo;
 
-#[derive(serde::Deserialize, serde::Serialize, Debug, Clone, Default)]
+#[derive(serde::Deserialize, serde::Serialize, Debug, Clone)]
 pub struct PushTodo {
+    pub graph: DependsOnGraph,
     /// Map from change numbers to updated commit hashes.
     pub refs: BTreeMap<ChangeNumber, RefUpdate>,
 }
@@ -31,7 +35,10 @@ impl From<RestackTodo> for PushTodo {
             }
         }
 
-        Self { refs }
+        Self {
+            refs,
+            graph: restack_todo.graph,
+        }
     }
 }
 
@@ -54,18 +61,33 @@ pub fn restack_push(gerrit: &GerritGitRemote) -> miette::Result<()> {
     let mut todo = get_todo(gerrit)?;
     let git = gerrit.git();
 
-    while !todo.refs.is_empty() {
-        let (change, RefUpdate { old, new }) = todo.refs.pop_first().expect("Length is checked");
-        tracing::info!(
-            "Pushing change {}: {}..{}",
-            change,
-            // TODO: Git hash type, short ref method.
-            &old[..8],
-            &new[..8],
-        );
-        let change = gerrit.get_change(change)?;
-        git.gerrit_push(&gerrit.remote, &new, &change.branch)?;
-        todo.write(&git)?;
+    let root = todo.graph.dependency_root()?;
+    let mut seen = BTreeSet::new();
+    seen.insert(root);
+    let mut queue = VecDeque::new();
+    queue.push_front(root);
+
+    while let Some(change) = queue.pop_back() {
+        if let Some(RefUpdate { old, new }) = todo.refs.remove(&change) {
+            tracing::info!(
+                "Pushing change {}: {}..{}",
+                change,
+                // TODO: Git hash type, short ref method.
+                &old[..8],
+                &new[..8],
+            );
+            let change = gerrit.get_change(change)?;
+            git.gerrit_push(&gerrit.remote, &new, &change.branch)?;
+            todo.write(&git)?;
+        }
+
+        let needed_by = todo.graph.needed_by(change);
+        for reverse_dependency in needed_by {
+            if !seen.contains(reverse_dependency) {
+                seen.insert(*reverse_dependency);
+                queue.push_front(*reverse_dependency);
+            }
+        }
     }
 
     Ok(())
