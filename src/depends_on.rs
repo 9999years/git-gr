@@ -57,6 +57,7 @@ impl DependsOnGraph {
     pub fn traverse(gerrit: &Gerrit, root: ChangeNumber) -> miette::Result<Self> {
         let mut dependency_graph = Self::new(root);
         let mut seen = BTreeSet::new();
+        seen.insert(root);
         let mut queue = VecDeque::new();
         queue.push_front(root);
 
@@ -123,6 +124,7 @@ impl DependsOnGraph {
         let mut roots = BTreeSet::new();
 
         let mut seen = BTreeSet::new();
+        seen.insert(self.root);
         let mut queue = VecDeque::new();
         queue.push_front(self.root);
 
@@ -143,25 +145,28 @@ impl DependsOnGraph {
         roots
     }
 
+    pub fn dependency_root(&mut self) -> miette::Result<ChangeNumber> {
+        let mut roots = self.depends_on_roots();
+        match roots.len() {
+            1 => Ok(roots.pop_first().expect("Length is checked")),
+            _ => Err(miette!(
+                "Expected to find exactly one root change, but found {}:\n{}",
+                roots.len(),
+                format_bulleted_list(roots.iter())
+            )),
+        }
+    }
+
     pub fn format_tree(
         &mut self,
         gerrit: &Gerrit,
         mut extra_label: impl FnMut(ChangeNumber) -> miette::Result<Vec<String>>,
     ) -> miette::Result<String> {
         let mut trees = BTreeMap::<ChangeNumber, Arc<Mutex<Tree>>>::new();
+        let root = self.dependency_root()?;
 
         let mut seen = BTreeSet::new();
-        let mut roots = self.depends_on_roots();
-        let root = match roots.len() {
-            1 => roots.pop_first().expect("Length is checked"),
-            _ => {
-                return Err(miette!(
-                    "Expected to find exactly one root change, but found {}:\n{}",
-                    roots.len(),
-                    format_bulleted_list(roots.iter())
-                ));
-            }
-        };
+        seen.insert(root);
         let mut queue = VecDeque::new();
         queue.push_front(root);
 

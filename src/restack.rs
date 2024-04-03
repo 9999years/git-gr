@@ -280,6 +280,7 @@ pub fn create_todo(gerrit: &GerritGitRemote, branch: &str) -> miette::Result<Res
     let roots = todo.graph.depends_on_roots();
     for root in &roots {
         let mut seen = BTreeSet::new();
+        seen.insert(*root);
         let mut queue = VecDeque::new();
         queue.push_front(*root);
 
