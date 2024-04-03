@@ -1,3 +1,4 @@
+use camino::Utf8PathBuf;
 use clap::Parser;
 use clap::Subcommand;
 
@@ -67,6 +68,16 @@ pub enum Command {
     Cli {
         /// Arguments to pass to `gerrit`.
         args: Vec<String>,
+    },
+    /// Generate shell completions.
+    Completions {
+        /// Shell to generate completions for.
+        shell: clap_complete::shells::Shell,
+    },
+    /// Generate man pages.
+    Manpages {
+        /// Directory to write man pages to.
+        out_dir: Utf8PathBuf,
     },
 }
 

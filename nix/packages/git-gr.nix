@@ -2,12 +2,14 @@
   system,
   lib,
   stdenv,
+  buildPackages,
   libiconv,
   darwin,
   inputs,
   rustPlatform,
   rust-analyzer,
   cargo-release,
+  installShellFiles,
 }: let
   inherit (inputs) crane advisory-db;
   craneLib = crane.lib.${system};
@@ -78,6 +80,9 @@
       cargo-release
     ];
   };
+
+  can-run-git-gr = stdenv.hostPlatform.emulatorAvailable buildPackages;
+  git-gr = "${stdenv.hostPlatform.emulator buildPackages} $out/bin/git-gr";
 in
   # Build the actual crate itself, reusing the dependency
   # artifacts from above.
@@ -85,6 +90,23 @@ in
     // {
       # Don't run tests; we'll do that in a separate derivation.
       doCheck = false;
+
+      nativeBuildInputs = commonArgs.nativeBuildInputs ++ [installShellFiles];
+
+      preFixup =
+        (commonArgs.preFixup or "")
+        + lib.optionalString can-run-git-gr ''
+          manpages=$(mktemp -d)
+          ${git-gr} manpages "$manpages"
+          for manpage in "$manpages"/*; do
+            installManPage "$manpage"
+          done
+
+          installShellCompletion --cmd git-gr \
+            --bash <(${git-gr} completions bash) \
+            --fish <(${git-gr} completions fish) \
+            --zsh <(${git-gr} completions zsh)
+        '';
 
       passthru = {
         inherit

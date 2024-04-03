@@ -18,12 +18,14 @@ mod restack_push;
 mod tmpdir;
 
 use calm_io::stdoutln;
+use clap::CommandFactory;
 use clap::Parser;
 use cli::Opts;
 use command_error::CommandExt;
 use format_bulleted_list::format_bulleted_list;
 use git::Git;
 use install_tracing::install_tracing;
+use miette::Context;
 use miette::IntoDiagnostic;
 use restack::create_todo;
 
@@ -109,6 +111,16 @@ fn main() -> miette::Result<()> {
                     }
                 },
             }
+        }
+        cli::Command::Completions { shell } => {
+            let mut clap_command = cli::Opts::command();
+            clap_complete::generate(shell, &mut clap_command, "git-gr", &mut std::io::stdout());
+        }
+        cli::Command::Manpages { out_dir } => {
+            let clap_command = cli::Opts::command();
+            clap_mangen::generate_to(clap_command, out_dir)
+                .into_diagnostic()
+                .wrap_err("Failed to generate man pages")?;
         }
     }
 
