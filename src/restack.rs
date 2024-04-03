@@ -207,7 +207,7 @@ pub fn restack(gerrit: &GerritGitRemote, branch: &str) -> miette::Result<()> {
 
     let todo = PushTodo::from(todo);
     if todo.is_empty() {
-        tracing::info!("Restack completed; no changes");
+        tracing::info!("Restack completed; o changes");
     } else {
         todo.write(&git)?;
         // TODO: Toposort these changes or print as tree.
