@@ -83,13 +83,11 @@
 
   can-run-git-gr = stdenv.hostPlatform.emulatorAvailable buildPackages;
   git-gr = "${stdenv.hostPlatform.emulator buildPackages} $out/bin/git-gr";
-in
-  # Build the actual crate itself, reusing the dependency
-  # artifacts from above.
-  craneLib.buildPackage (commonArgs
+
+  git-gr-man = craneLib.buildPackage (
+    commonArgs
     // {
-      # Don't run tests; we'll do that in a separate derivation.
-      doCheck = false;
+      cargoExtraArgs = "${commonArgs.cargoExtraArgs or ""} --features clap_mangen";
 
       nativeBuildInputs = commonArgs.nativeBuildInputs ++ [installShellFiles];
 
@@ -106,6 +104,23 @@ in
             --bash <(${git-gr} completions bash) \
             --fish <(${git-gr} completions fish) \
             --zsh <(${git-gr} completions zsh)
+
+          rm -rf "$out/bin"
+        '';
+    }
+  );
+in
+  # Build the actual crate itself, reusing the dependency
+  # artifacts from above.
+  craneLib.buildPackage (commonArgs
+    // {
+      # Don't run tests; we'll do that in a separate derivation.
+      doCheck = false;
+
+      preFixup =
+        (commonArgs.preFixup or "")
+        + ''
+          cp -r ${git-gr-man}/share $out/share
         '';
 
       passthru = {

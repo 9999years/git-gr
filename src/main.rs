@@ -25,9 +25,11 @@ use command_error::CommandExt;
 use format_bulleted_list::format_bulleted_list;
 use git::Git;
 use install_tracing::install_tracing;
-use miette::Context;
 use miette::IntoDiagnostic;
 use restack::create_todo;
+
+#[allow(unused_imports)]
+use miette::Context;
 
 fn main() -> miette::Result<()> {
     let opts = Opts::parse();
@@ -116,6 +118,7 @@ fn main() -> miette::Result<()> {
             let mut clap_command = cli::Opts::command();
             clap_complete::generate(shell, &mut clap_command, "git-gr", &mut std::io::stdout());
         }
+        #[cfg(feature = "clap_mangen")]
         cli::Command::Manpages { out_dir } => {
             let clap_command = cli::Opts::command();
             clap_mangen::generate_to(clap_command, out_dir)

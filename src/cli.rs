@@ -1,4 +1,3 @@
-use camino::Utf8PathBuf;
 use clap::Parser;
 use clap::Subcommand;
 
@@ -75,9 +74,10 @@ pub enum Command {
         shell: clap_complete::shells::Shell,
     },
     /// Generate man pages.
+    #[cfg(feature = "clap_mangen")]
     Manpages {
         /// Directory to write man pages to.
-        out_dir: Utf8PathBuf,
+        out_dir: camino::Utf8PathBuf,
     },
 }
 

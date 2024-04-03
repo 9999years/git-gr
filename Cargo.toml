@@ -16,7 +16,7 @@ calm_io = "0.1.1"
 camino = "1.1.6"
 clap = { version = "4.5.4", features = ["derive", "wrap_help", "env"] }
 clap_complete = "4.5.1"
-clap_mangen = "0.2.20"
+clap_mangen = { version = "0.2.20", optional = true }
 command-error = { version = "0.4.0", features = [ "tracing" ] }
 fs-err = "2.11.0"
 itertools = "0.12.1"
