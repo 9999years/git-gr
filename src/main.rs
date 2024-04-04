@@ -155,6 +155,19 @@ fn main() -> miette::Result<()> {
             let chain = gerrit.format_chain(query)?;
             let _ = stdoutln!("{chain}");
         }
+        cli::Command::View { query } => {
+            let git = Git::new();
+            let gerrit = git.gerrit(None)?;
+            let query = match query {
+                Some(query) => query,
+                None => git.change_id("HEAD")?.into(),
+            };
+            let change = gerrit.get_change(query)?;
+            let url = &change.url;
+            webbrowser::open(url)
+                .into_diagnostic()
+                .wrap_err_with(|| format!("Failed to open browser for {url}"))?;
+        }
     }
 
     Ok(())
