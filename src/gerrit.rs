@@ -1,3 +1,4 @@
+use std::fmt::Debug;
 use std::ops::Deref;
 use std::ops::DerefMut;
 use std::process::Command;
@@ -12,7 +13,11 @@ use miette::miette;
 use miette::Context;
 use miette::IntoDiagnostic;
 use regex::Regex;
+use reqwest::Method;
+use secrecy::ExposeSecret;
+use secrecy::SecretString;
 use serde::de::DeserializeOwned;
+use tracing::instrument;
 use utf8_command::Utf8Output;
 
 use crate::change::Change;
@@ -33,13 +38,36 @@ use crate::restack_push::restack_push;
 use crate::tmpdir::ssh_control_path;
 
 /// Gerrit SSH client wrapper.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Clone)]
 pub struct Gerrit {
     username: String,
     host: String,
     port: u16,
     project: String,
+
+    /// Password for the REST API.
+    ///
+    /// Generated with `gerrit set-account --generate-http-password`.
+    http_password: Option<SecretString>,
+    http_client: Option<reqwest::blocking::Client>,
 }
+
+impl Debug for Gerrit {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_tuple("Gerrit").field(&self.remote()).finish()
+    }
+}
+
+impl PartialEq for Gerrit {
+    fn eq(&self, other: &Self) -> bool {
+        self.username == other.username
+            && self.host == other.host
+            && self.port == other.port
+            && self.project == other.project
+    }
+}
+
+impl Eq for Gerrit {}
 
 impl Gerrit {
     /// Parse a Gerrit configuration from a Git remote URL.
@@ -76,6 +104,8 @@ impl Gerrit {
                     host: captures["host"].to_owned(),
                     port,
                     project: captures["project"].to_owned(),
+                    http_password: None,
+                    http_client: None,
                 })
             }
             None => Err(miette!("Could not parse Git remote as Gerrit URL: {url}")),
@@ -89,6 +119,12 @@ impl Gerrit {
     /// The `ssh` destination to connect to.
     pub fn connect_to(&self) -> String {
         format!("ssh://{}@{}:{}", self.username, self.host, self.port)
+    }
+
+    /// Given an endpoint path, format an HTTP request URL.
+    fn endpoint(&self, endpoint: &str) -> String {
+        let endpoint = endpoint.trim_start_matches('/');
+        format!("https://{}/a/{endpoint}", self.host)
     }
 
     pub fn remote(&self) -> String {
@@ -487,6 +523,94 @@ impl GerritGitRemote {
     pub fn restack_push(&self) -> miette::Result<()> {
         restack_push(self)
     }
+
+    /// Ensure that this object has an HTTP password set.
+    pub fn generate_http_password(&mut self) -> miette::Result<()> {
+        if self.http_password.is_some() {
+            return Ok(());
+        }
+
+        let output = self
+            .command(["set-account", &self.username, "--generate-http-password"])
+            .output_checked_utf8()
+            .into_diagnostic()?
+            .stdout;
+
+        static RE: OnceLock<Regex> = OnceLock::new();
+        let captures = RE
+            .get_or_init(|| {
+                Regex::new(
+                    r"(?xm)
+                    ^
+                    New\ password:
+                    \ (?P<password>[a-zA-Z0-9/+=]+)
+                    $",
+                )
+                .expect("Regex parses")
+            })
+            .captures(&output);
+
+        match captures {
+            Some(captures) => {
+                self.http_password = Some(SecretString::new(captures["password"].to_owned()));
+                Ok(())
+            }
+            None => Err(miette!("Could not parse Gerrit HTTP password: {output:?}")),
+        }
+    }
+
+    /// Ensure that `http_password` and `http_client` are populated.
+    fn http_ensure(&mut self) -> miette::Result<()> {
+        self.generate_http_password()?;
+
+        if self.http_client.is_none() {
+            self.http_client = Some(reqwest::blocking::Client::new());
+        }
+
+        Ok(())
+    }
+
+    #[instrument()]
+    pub fn http_request(&mut self, method: Method, endpoint: &str) -> miette::Result<String> {
+        self.http_ensure()?;
+
+        let url = self.endpoint(endpoint);
+
+        let response = self
+            .http_client
+            .as_ref()
+            .expect("http_ensure should construct an HTTP client")
+            .request(method.clone(), &url)
+            .basic_auth(
+                &self.username,
+                self.http_password
+                    .as_ref()
+                    .map(|password| password.expose_secret()),
+            )
+            .send()
+            .into_diagnostic()
+            .wrap_err_with(|| format!("Failed to {method} {url}"))?;
+
+        if response.status().is_success() {
+            let body = response
+                .text()
+                .into_diagnostic()
+                .wrap_err_with(|| format!("Failed to get response body for {url}"))?;
+
+            Ok(body
+                .strip_prefix(")]}'\n")
+                .map(|body| body.to_owned())
+                .unwrap_or(body))
+        } else {
+            Err(miette!(
+                "{method} {url} failed with status {}:\n{}",
+                response.status(),
+                response
+                    .text()
+                    .unwrap_or_else(|error| { format!("Failed to get response body: {error}") })
+            ))
+        }
+    }
 }
 
 impl Deref for GerritGitRemote {
@@ -516,7 +640,9 @@ mod tests {
                 username: "rbt".to_owned(),
                 host: "ooga.booga.systems".to_owned(),
                 port: 2022,
-                project: "ouppy".to_owned()
+                project: "ouppy".to_owned(),
+                http_password: None,
+                http_client: None
             }
         );
     }

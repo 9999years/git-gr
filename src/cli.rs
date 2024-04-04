@@ -1,5 +1,6 @@
 use clap::Parser;
 use clap::Subcommand;
+use reqwest::Method;
 
 use crate::change_number::ChangeNumber;
 
@@ -19,6 +20,7 @@ pub struct Opts {
     pub command: Command,
 }
 
+#[allow(rustdoc::bare_urls)]
 #[derive(Debug, Clone, Subcommand)]
 pub enum Command {
     /// Push a branch to Gerrit.
@@ -63,11 +65,6 @@ pub enum Command {
     Top,
     /// Checkout the next CL below this one in the stack.
     Down,
-    /// Run a `gerrit` command on the remote server.
-    Cli {
-        /// Arguments to pass to `gerrit`.
-        args: Vec<String>,
-    },
     /// Generate shell completions.
     Completions {
         /// Shell to generate completions for.
@@ -81,6 +78,19 @@ pub enum Command {
     },
     /// Query changes.
     Query { query: String },
+    /// Run a `gerrit` command on the remote server.
+    Cli {
+        /// Arguments to pass to `gerrit`.
+        args: Vec<String>,
+    },
+    /// Make a request to the Gerrit REST API.
+    ///
+    /// See: https://gerrit-review.googlesource.com/Documentation/rest-api.html
+    Api {
+        #[arg(short = 'X', long, default_value_t = reqwest::Method::GET)]
+        method: Method,
+        endpoint: String,
+    },
 }
 
 #[derive(Debug, Clone, Subcommand)]
