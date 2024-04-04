@@ -39,6 +39,8 @@
         darwin.apple_sdk.frameworks.CoreServices
         darwin.apple_sdk.frameworks.SystemConfiguration
       ];
+
+    OPENSSL_NO_VENDOR = true;
   };
 
   # Build *just* the cargo dependencies, so we can reuse
