@@ -8,6 +8,12 @@ use std::ops::Deref;
 #[serde(transparent)]
 pub struct ChangeId(pub String);
 
+impl From<ChangeId> for String {
+    fn from(value: ChangeId) -> Self {
+        value.0
+    }
+}
+
 impl Display for ChangeId {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         self.0.fmt(f)

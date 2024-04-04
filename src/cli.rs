@@ -98,6 +98,13 @@ pub enum Command {
         /// Defaults to the `HEAD` commit's change.
         query: Option<String>,
     },
+    /// Open a change in a web browser.
+    View {
+        /// The change to view.
+        ///
+        /// Defaults to the `HEAD` commit's change.
+        query: Option<String>,
+    },
 }
 
 #[derive(Debug, Clone, Subcommand)]
