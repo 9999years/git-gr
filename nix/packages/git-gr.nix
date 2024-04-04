@@ -10,6 +10,8 @@
   rust-analyzer,
   cargo-release,
   installShellFiles,
+  pkg-config,
+  openssl,
 }: let
   inherit (inputs) crane advisory-db;
   craneLib = crane.lib.${system};
@@ -24,13 +26,19 @@
   commonArgs' = {
     inherit src;
 
-    nativeBuildInputs = lib.optionals stdenv.isDarwin [
-      (libiconv.override {
-        enableStatic = true;
-        enableShared = false;
-      })
-      darwin.apple_sdk.frameworks.CoreServices
-    ];
+    nativeBuildInputs =
+      lib.optionals stdenv.isLinux [
+        pkg-config
+        openssl
+      ]
+      ++ lib.optionals stdenv.isDarwin [
+        (libiconv.override {
+          enableStatic = true;
+          enableShared = false;
+        })
+        darwin.apple_sdk.frameworks.CoreServices
+        darwin.apple_sdk.frameworks.SystemConfiguration
+      ];
   };
 
   # Build *just* the cargo dependencies, so we can reuse
