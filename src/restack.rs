@@ -14,6 +14,7 @@ use miette::Context;
 use miette::IntoDiagnostic;
 
 use crate::change_number::ChangeNumber;
+use crate::commit_hash::CommitHash;
 use crate::dependency_graph::DependencyGraph;
 use crate::gerrit::GerritGitRemote;
 use crate::git::Git;
@@ -133,10 +134,10 @@ impl Display for RestackOnto {
     }
 }
 
-#[derive(serde::Deserialize, serde::Serialize, Debug, Clone, Default)]
+#[derive(serde::Deserialize, serde::Serialize, Debug, Clone)]
 pub struct RefUpdate {
-    pub old: String,
-    pub new: String,
+    pub old: CommitHash,
+    pub new: CommitHash,
 }
 
 impl RefUpdate {
@@ -151,7 +152,7 @@ impl Display for RefUpdate {
     }
 }
 
-pub fn restack(gerrit: &GerritGitRemote, branch: &str) -> miette::Result<()> {
+pub fn restack(gerrit: &mut GerritGitRemote, branch: &str) -> miette::Result<()> {
     let git = gerrit.git();
     let mut fetched = false;
     let mut todo = get_or_create_todo(gerrit, branch)?;
@@ -186,10 +187,24 @@ pub fn restack(gerrit: &GerritGitRemote, branch: &str) -> miette::Result<()> {
         None => {}
     }
 
-    tracing::info!(
-        "Restacking changes:\n{}",
-        todo.graph.format_tree(gerrit, |_| Ok(Vec::new()))?
-    );
+    if todo.refs.is_empty() {
+        tracing::info!(
+            "Restacking changes:\n{}",
+            todo.graph.format_tree(gerrit, |_| Ok(Vec::new()))?
+        );
+    } else {
+        tracing::info!(
+            "Continuing to restack changes:\n{}",
+            todo.graph.format_tree(gerrit, |change| {
+                Ok(todo
+                    .refs
+                    .get(&change)
+                    .into_iter()
+                    .map(|update| update.to_string())
+                    .collect())
+            })?
+        );
+    }
 
     while let Some(step) = todo.steps.pop_front() {
         let step_result = todo
@@ -248,19 +263,26 @@ fn todo_path(git: &Git) -> miette::Result<Utf8PathBuf> {
         .map(|git_dir| git_dir.join("git-gr-restack-todo.json"))
 }
 
-fn get_or_create_todo(gerrit: &GerritGitRemote, branch: &str) -> miette::Result<RestackTodo> {
+fn get_or_create_todo(gerrit: &mut GerritGitRemote, branch: &str) -> miette::Result<RestackTodo> {
+    get_todo(gerrit)?
+        .map(Ok)
+        .unwrap_or_else(|| create_todo(gerrit, branch))
+}
+
+pub fn get_todo(gerrit: &GerritGitRemote) -> miette::Result<Option<RestackTodo>> {
     let todo_path = todo_path(&gerrit.git())?;
 
     if todo_path.exists() {
         serde_json::from_reader(BufReader::new(File::open(&todo_path).into_diagnostic()?))
             .into_diagnostic()
             .wrap_err_with(|| format!("Failed to read restack todo from `{todo_path}`; remove it to abort the restack attempt"))
+            .map(Some)
     } else {
-        create_todo(gerrit, branch)
+        Ok(None)
     }
 }
 
-pub fn create_todo(gerrit: &GerritGitRemote, branch: &str) -> miette::Result<RestackTodo> {
+pub fn create_todo(gerrit: &mut GerritGitRemote, branch: &str) -> miette::Result<RestackTodo> {
     let git = gerrit.git();
     let todo_path = todo_path(&git)?;
     if todo_path.exists() {

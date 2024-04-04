@@ -5,10 +5,10 @@ use std::collections::VecDeque;
 use std::sync::Arc;
 
 use miette::miette;
-use miette::Context;
 use parking_lot::Mutex;
 
 use crate::change_number::ChangeNumber;
+use crate::dependency_graph_builder::DependencyGraphBuilder;
 use crate::format_bulleted_list;
 use crate::gerrit::Gerrit;
 use crate::unicode_tree::Tree;
@@ -26,8 +26,8 @@ pub struct DependsOnRelation {
 #[derive(serde::Deserialize, serde::Serialize, Debug, Clone)]
 pub struct DependencyGraph {
     pub root: ChangeNumber,
-    dependencies: BTreeMap<ChangeNumber, ChangeNumber>,
-    reverse_dependencies: BTreeMap<ChangeNumber, BTreeSet<ChangeNumber>>,
+    pub(crate) dependencies: BTreeMap<ChangeNumber, ChangeNumber>,
+    pub(crate) reverse_dependencies: BTreeMap<ChangeNumber, BTreeSet<ChangeNumber>>,
 }
 
 impl DependencyGraph {
@@ -39,39 +39,8 @@ impl DependencyGraph {
         }
     }
 
-    pub fn traverse(gerrit: &Gerrit, root: ChangeNumber) -> miette::Result<Self> {
-        let mut dependency_graph = Self::new(root);
-        let mut seen = BTreeSet::new();
-        seen.insert(root);
-        let mut queue = VecDeque::new();
-        queue.push_front(root);
-
-        while let Some(change) = queue.pop_back() {
-            let dependencies = gerrit
-                .dependencies(change)
-                .wrap_err("Failed to get change dependencies")?
-                .filter_unmerged(gerrit)?;
-            tracing::debug!(?dependencies, "Found change dependencies");
-            for depends_on in dependencies.depends_on_numbers() {
-                dependency_graph.insert(DependsOnRelation { change, depends_on })?;
-                if !seen.contains(&depends_on) {
-                    seen.insert(depends_on);
-                    queue.push_front(depends_on);
-                }
-            }
-            for needed_by in dependencies.needed_by_numbers() {
-                dependency_graph.insert(DependsOnRelation {
-                    change: needed_by,
-                    depends_on: change,
-                })?;
-                if !seen.contains(&needed_by) {
-                    seen.insert(needed_by);
-                    queue.push_front(needed_by);
-                }
-            }
-        }
-
-        Ok(dependency_graph)
+    pub fn traverse(gerrit: &mut Gerrit, root: ChangeNumber) -> miette::Result<Self> {
+        Ok(DependencyGraphBuilder::traverse(gerrit, root)?.build())
     }
 
     pub fn insert(&mut self, dependency: DependsOnRelation) -> miette::Result<()> {
