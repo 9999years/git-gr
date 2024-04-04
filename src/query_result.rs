@@ -1,15 +1,19 @@
 use std::collections::BTreeSet;
 
+use comfy_table::Cell;
+use comfy_table::Color;
 use miette::IntoDiagnostic;
 use serde::de::DeserializeOwned;
 
-use crate::author::Author;
-use crate::change_id::ChangeId;
+use crate::change::Change;
 use crate::change_number::ChangeNumber;
+use crate::change_status::ChangeStatus;
 use crate::current_patch_set::CurrentPatchSet;
 use crate::depends_on::DependsOn;
 use crate::gerrit::Gerrit;
 use crate::needed_by::NeededBy;
+use crate::submit_records::SubmitRecord;
+use crate::submit_status::SubmitStatus;
 
 #[derive(serde::Deserialize, Debug)]
 #[serde(rename_all = "camelCase")]
@@ -58,33 +62,6 @@ pub struct QueryStatistics {
     more_changes: bool,
 }
 
-#[derive(serde::Deserialize, Debug)]
-#[serde(rename_all = "camelCase")]
-pub struct Change {
-    pub project: String,
-    pub branch: String,
-    pub id: ChangeId,
-    pub number: ChangeNumber,
-    pub subject: Option<String>,
-    pub owner: Author,
-    pub url: String,
-    pub hashtags: Vec<String>,
-    #[allow(dead_code)]
-    created_on: u64,
-    #[allow(dead_code)]
-    last_updated: u64,
-    pub open: bool,
-    pub status: ChangeStatus,
-}
-
-#[derive(serde::Deserialize, Debug)]
-#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
-pub enum ChangeStatus {
-    New,
-    Merged,
-    Abandoned,
-}
-
 /// A [`Change`] with a [`CurrentPatchSet`].
 ///
 /// TODO: Make this generic over the mixin type?
@@ -94,6 +71,33 @@ pub struct ChangeCurrentPatchSet {
     #[serde(flatten)]
     pub change: Change,
     pub current_patch_set: CurrentPatchSet,
+}
+
+/// A [`Change`] with [`SubmitRecord`]s.
+///
+/// TODO: Make this generic over the mixin type?
+#[derive(serde::Deserialize, Debug)]
+#[serde(rename_all = "camelCase")]
+pub struct ChangeSubmitRecords {
+    #[serde(flatten)]
+    pub change: Change,
+    pub submit_records: Vec<SubmitRecord>,
+}
+
+impl ChangeSubmitRecords {
+    pub fn ready_cell(&self) -> Cell {
+        match self.submit_records.first() {
+            Some(record) => match record.status {
+                SubmitStatus::Ok => Cell::new("✔").fg(Color::Green),
+                SubmitStatus::NotReady => Cell::new("✗").fg(Color::Red),
+                SubmitStatus::Closed => {
+                    Cell::new("closed").add_attribute(comfy_table::Attribute::Dim)
+                }
+                SubmitStatus::RuleError => Cell::new("error").fg(Color::Red),
+            },
+            None => Cell::new(""),
+        }
+    }
 }
 
 /// A [`Change`] with a [`DependsOn`] and [`NeededBy`].

@@ -1,4 +1,4 @@
-use crate::author::User;
+use crate::author::Author;
 
 /// The current patch set in a Gerrit change.
 #[derive(serde::Deserialize, Debug)]
@@ -14,5 +14,5 @@ pub struct Approval {
     ///
     /// Generally(?) a number like `-1` or `+2`.
     value: String,
-    by: User,
+    by: Author,
 }

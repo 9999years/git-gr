@@ -1,9 +1,12 @@
 mod approval;
 mod author;
+mod change;
 mod change_id;
 mod change_number;
+mod change_status;
 mod cli;
 mod current_patch_set;
+mod dependency_graph;
 mod depends_on;
 mod format_bulleted_list;
 mod gerrit;
@@ -14,6 +17,10 @@ mod query;
 mod query_result;
 mod restack;
 mod restack_push;
+mod submit_label;
+mod submit_label_status;
+mod submit_records;
+mod submit_status;
 mod tmpdir;
 mod unicode_tree;
 
@@ -124,6 +131,11 @@ fn main() -> miette::Result<()> {
             clap_mangen::generate_to(clap_command, out_dir)
                 .into_diagnostic()
                 .wrap_err("Failed to generate man pages")?;
+        }
+        cli::Command::Query { query } => {
+            let git = Git::new();
+            let gerrit = git.gerrit(None)?;
+            gerrit.print_query(query)?;
         }
     }
 
