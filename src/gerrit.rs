@@ -23,6 +23,7 @@ use utf8_command::Utf8Output;
 use crate::change::Change;
 use crate::change::TimestampFormat;
 use crate::change_number::ChangeNumber;
+use crate::commit_hash::CommitHash;
 use crate::dependency_graph::DependencyGraph;
 use crate::format_bulleted_list;
 use crate::git::Git;
@@ -32,6 +33,7 @@ use crate::query_result::ChangeCurrentPatchSet;
 use crate::query_result::ChangeDependencies;
 use crate::query_result::ChangeSubmitRecords;
 use crate::query_result::QueryResult;
+use crate::related_changes_info::RelatedChangesInfo;
 use crate::restack::restack;
 use crate::restack::restack_abort;
 use crate::restack_push::restack_push;
@@ -213,7 +215,7 @@ impl Gerrit {
     }
 
     pub fn dependency_graph<'a>(
-        &self,
+        &mut self,
         change: impl Into<Query<'a>>,
     ) -> miette::Result<DependencyGraph> {
         let change = change.into();
@@ -232,7 +234,7 @@ impl Gerrit {
     /// Fetch a CL.
     ///
     /// Returns the Git ref of the fetched patchset.
-    pub fn fetch_cl<'a>(&self, change: impl Into<Query<'a>>) -> miette::Result<String> {
+    pub fn fetch_cl<'a>(&self, change: impl Into<Query<'a>>) -> miette::Result<CommitHash> {
         let change = change.into();
         let git = self.git();
         git.command()
@@ -246,7 +248,7 @@ impl Gerrit {
     /// Fetch a CL without forwarding output to the user's terminal.
     ///
     /// Returns the Git ref of the fetched patchset.
-    pub fn fetch_cl_quiet<'a>(&self, change: impl Into<Query<'a>>) -> miette::Result<String> {
+    pub fn fetch_cl_quiet<'a>(&self, change: impl Into<Query<'a>>) -> miette::Result<CommitHash> {
         let change = change.into();
         let git = self.git();
         git.command()
@@ -438,91 +440,6 @@ impl Gerrit {
 
         Ok(())
     }
-}
-
-/// A [`Gerrit`] client tied to a specific Git remote.
-#[derive(Debug, Clone)]
-pub struct GerritGitRemote {
-    pub remote: String,
-    inner: Gerrit,
-}
-
-impl GerritGitRemote {
-    pub fn from_remote(remote: &str, url: &str) -> miette::Result<Self> {
-        Gerrit::parse_from_remote_url(url).map(|inner| Self {
-            remote: remote.to_owned(),
-            inner,
-        })
-    }
-
-    pub fn restack_this(&self) -> miette::Result<()> {
-        let change_id = self
-            .git()
-            .change_id("HEAD")
-            .wrap_err("Failed to get Change-Id for HEAD")?;
-        let change = self.get_change(&change_id)?;
-        let dependencies = self
-            .dependencies(&change_id)
-            .wrap_err("Failed to get change dependencies")?
-            .filter_unmerged(self)?;
-        let mut depends_on = dependencies.depends_on_numbers();
-        let depends_on = match depends_on.len() {
-            0 => {
-                return Err(miette!(
-                    "Change {} doesn't depend on any changes",
-                    dependencies.change.number
-                ));
-            }
-            1 => depends_on.pop_first().expect("Length was checked"),
-            _ => {
-                return Err(miette!(
-                        "Change {} depends on multiple changes, use `git-gr checkout {}` to pick one:\n{}",
-                        dependencies.change.number,
-                        dependencies.change.number,
-                        format_bulleted_list(&depends_on)
-                    ));
-            }
-        };
-        let depends_on = self.get_current_patch_set(depends_on)?;
-        tracing::info!(
-            "Rebasing {} on {}: {}",
-            change.number,
-            depends_on.change.number,
-            depends_on.current_patch_set.revision
-        );
-        self.git()
-            .command()
-            .args(["rebase", &depends_on.current_patch_set.revision])
-            .status_checked()
-            .into_diagnostic()?;
-        Ok(())
-    }
-
-    pub fn push(&self, branch: Option<String>, target: Option<String>) -> miette::Result<()> {
-        let git = self.git();
-        let target = match target {
-            Some(target) => target,
-            None => git.default_branch(&self.remote)?,
-        };
-        let branch = match branch {
-            Some(branch) => branch,
-            None => "HEAD".to_owned(),
-        };
-        git.gerrit_push(&self.remote, &branch, &target)?;
-        Ok(())
-    }
-
-    pub fn restack(&self, branch: &str) -> miette::Result<()> {
-        restack(self, branch)
-    }
-
-    pub fn restack_continue(&self) -> miette::Result<()> {
-        self.restack("HEAD")
-    }
-
-    pub fn restack_push(&self) -> miette::Result<()> {
-        restack_push(self)
-    }
 
     /// Ensure that this object has an HTTP password set.
     pub fn generate_http_password(&mut self) -> miette::Result<()> {
@@ -609,6 +526,155 @@ impl GerritGitRemote {
                     .text()
                     .unwrap_or_else(|error| { format!("Failed to get response body: {error}") })
             ))
+        }
+    }
+
+    pub fn http_json<T: DeserializeOwned>(
+        &mut self,
+        method: Method,
+        endpoint: &str,
+    ) -> miette::Result<T> {
+        let response = self.http_request(method, endpoint)?;
+        serde_json::from_str(&response)
+            .into_diagnostic()
+            .wrap_err_with(|| format!("Failed to deserialize JSON from HTTP request to {endpoint}"))
+    }
+
+    pub fn related_changes(
+        &mut self,
+        change_number: ChangeNumber,
+        revision_number: Option<u32>,
+    ) -> miette::Result<RelatedChangesInfo> {
+        let revision = revision_number
+            .map(|revision| revision.to_string())
+            .unwrap_or_else(|| "current".to_owned());
+        self.http_json::<RelatedChangesInfo>(
+            Method::GET,
+            &format!(
+                "/changes/{}~{change_number}/revisions/{revision}/related?o=SUBMITTABLE",
+                self.project
+            ),
+        )
+    }
+}
+
+/// A [`Gerrit`] client tied to a specific Git remote.
+#[derive(Debug, Clone)]
+pub struct GerritGitRemote {
+    pub remote: String,
+    inner: Gerrit,
+}
+
+impl GerritGitRemote {
+    pub fn from_remote(remote: &str, url: &str) -> miette::Result<Self> {
+        Gerrit::parse_from_remote_url(url).map(|inner| Self {
+            remote: remote.to_owned(),
+            inner,
+        })
+    }
+
+    pub fn restack_this(&self) -> miette::Result<()> {
+        let change_id = self
+            .git()
+            .change_id("HEAD")
+            .wrap_err("Failed to get Change-Id for HEAD")?;
+        let change = self.get_change(&change_id)?;
+        let dependencies = self
+            .dependencies(&change_id)
+            .wrap_err("Failed to get change dependencies")?
+            .filter_unmerged(self)?;
+        let mut depends_on = dependencies.depends_on_numbers();
+        let depends_on = match depends_on.len() {
+            0 => {
+                return Err(miette!(
+                    "Change {} doesn't depend on any changes",
+                    dependencies.change.number
+                ));
+            }
+            1 => depends_on.pop_first().expect("Length was checked"),
+            _ => {
+                return Err(miette!(
+                        "Change {} depends on multiple changes, use `git-gr checkout {}` to pick one:\n{}",
+                        dependencies.change.number,
+                        dependencies.change.number,
+                        format_bulleted_list(&depends_on)
+                    ));
+            }
+        };
+        let depends_on = self.get_current_patch_set(depends_on)?;
+        tracing::info!(
+            "Rebasing {} on {}: {}",
+            change.number,
+            depends_on.change.number,
+            depends_on.current_patch_set.revision
+        );
+        self.git()
+            .command()
+            .args(["rebase", &depends_on.current_patch_set.revision])
+            .status_checked()
+            .into_diagnostic()?;
+        Ok(())
+    }
+
+    pub fn push(&self, branch: Option<String>, target: Option<String>) -> miette::Result<()> {
+        let git = self.git();
+        let target = match target {
+            Some(target) => target,
+            None => git.default_branch(&self.remote)?,
+        };
+        let branch = match branch {
+            Some(branch) => branch,
+            None => "HEAD".to_owned(),
+        };
+        git.gerrit_push(&self.remote, &branch, &target)?;
+        Ok(())
+    }
+
+    pub fn restack(&mut self, branch: &str) -> miette::Result<()> {
+        restack(self, branch)
+    }
+
+    pub fn restack_continue(&mut self) -> miette::Result<()> {
+        self.restack("HEAD")
+    }
+
+    pub fn restack_push(&self) -> miette::Result<()> {
+        restack_push(self)
+    }
+
+    pub fn format_chain(&mut self, query: Option<String>) -> miette::Result<String> {
+        let git = self.git();
+        let change_number = match query {
+            Some(query) => self.get_change(query)?.number,
+            None => {
+                let change_id = git
+                    .change_id("HEAD")
+                    .wrap_err("Failed to get Change-Id for HEAD")?;
+                self.get_change(&change_id)?.number
+            }
+        };
+        let mut graph = DependencyGraph::traverse(self, change_number)?;
+
+        if let Some(todo) = crate::restack::get_todo(self)? {
+            graph.format_tree(self, |change| {
+                Ok(todo
+                    .refs
+                    .get(&change)
+                    .into_iter()
+                    .map(|update| update.to_string())
+                    .collect())
+            })
+        } else if let Ok(todo) = crate::restack_push::maybe_get_todo(self)? {
+            graph.format_tree(self, |change| {
+                Ok(todo
+                    .refs
+                    .get(&change)
+                    .into_iter()
+                    .map(|update| update.to_string())
+                    .collect())
+            })
+        } else {
+            graph.format_tree(self, |_change| Ok(vec![]))
         }
     }
 }

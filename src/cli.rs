@@ -91,6 +91,13 @@ pub enum Command {
         method: Method,
         endpoint: String,
     },
+    /// Display a chain of related changes.
+    ShowChain {
+        /// A query for the change to show.
+        ///
+        /// Defaults to the `HEAD` commit's change.
+        query: Option<String>,
+    },
 }
 
 #[derive(Debug, Clone, Subcommand)]

@@ -67,14 +67,25 @@ pub fn restack_push(gerrit: &GerritGitRemote) -> miette::Result<()> {
     let mut queue = VecDeque::new();
     queue.push_front(root);
 
+    tracing::info!(
+        "Pushing stack:\n{}",
+        todo.graph.format_tree(gerrit, |change| {
+            Ok(todo
+                .refs
+                .get(&change)
+                .into_iter()
+                .map(|update| update.to_string())
+                .collect())
+        })?
+    );
+
     while let Some(change) = queue.pop_back() {
         if let Some(RefUpdate { old, new }) = todo.refs.remove(&change) {
             tracing::info!(
                 "Pushing change {}: {}..{}",
                 change,
-                // TODO: Git hash type, short ref method.
-                &old[..8],
-                &new[..8],
+                old.abbrev(),
+                new.abbrev(),
             );
             let change = gerrit.get_change(change)?;
             git.gerrit_push(&gerrit.remote, &new, &change.branch)?;
@@ -94,16 +105,21 @@ pub fn restack_push(gerrit: &GerritGitRemote) -> miette::Result<()> {
 }
 
 fn get_todo(gerrit: &GerritGitRemote) -> miette::Result<PushTodo> {
+    maybe_get_todo(gerrit)?.map_err(|push_path| {
+        miette!("Push todo path `{push_path}` does not exist; did you run `git-gr restack`?")
+    })
+}
+
+pub fn maybe_get_todo(gerrit: &GerritGitRemote) -> miette::Result<Result<PushTodo, Utf8PathBuf>> {
     let push_path = push_path(&gerrit.git())?;
 
     if push_path.exists() {
         serde_json::from_reader(BufReader::new(File::open(&push_path).into_diagnostic()?))
             .into_diagnostic()
             .wrap_err_with(|| format!("Failed to read push todo from `{push_path}`"))
+            .map(Ok)
     } else {
-        Err(miette!(
-            "Push todo path `{push_path}` does not exist; did you run `git-gr restack`?"
-        ))
+        Ok(Err(push_path))
     }
 }
 

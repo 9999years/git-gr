@@ -9,6 +9,7 @@ use miette::IntoDiagnostic;
 use regex::Regex;
 
 use crate::change_id::ChangeId;
+use crate::commit_hash::CommitHash;
 use crate::format_bulleted_list;
 use crate::gerrit::GerritGitRemote;
 
@@ -246,12 +247,8 @@ impl Git {
     }
 
     /// Get the `HEAD` commit hash.
-    pub fn get_head(&self) -> miette::Result<String> {
-        self.command()
-            .args(["rev-parse", "HEAD"])
-            .output_checked_utf8()
-            .into_diagnostic()
-            .map(|output| output.stdout.trim().to_owned())
+    pub fn get_head(&self) -> miette::Result<CommitHash> {
+        self.rev_parse("HEAD")
     }
 
     /// Get the `.git` directory path.
@@ -263,14 +260,15 @@ impl Git {
             .map(|output| Utf8PathBuf::from(output.stdout.trim()))
     }
 
-    pub fn rev_parse(&self, commitish: &str) -> miette::Result<String> {
-        Ok(self
-            .command()
-            .args(["rev-parse", commitish])
-            .output_checked_utf8()
-            .into_diagnostic()?
-            .stdout
-            .trim()
-            .to_owned())
+    pub fn rev_parse(&self, commitish: &str) -> miette::Result<CommitHash> {
+        Ok(CommitHash(
+            self.command()
+                .args(["rev-parse", commitish])
+                .output_checked_utf8()
+                .into_diagnostic()?
+                .stdout
+                .trim()
+                .to_owned(),
+        ))
     }
 }

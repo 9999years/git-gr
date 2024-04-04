@@ -5,16 +5,22 @@ mod change_id;
 mod change_number;
 mod change_status;
 mod cli;
+mod commit_hash;
+mod commit_info;
 mod current_patch_set;
 mod dependency_graph;
+mod dependency_graph_builder;
 mod depends_on;
 mod format_bulleted_list;
 mod gerrit;
 mod git;
+mod git_person_info;
 mod install_tracing;
 mod needed_by;
 mod query;
 mod query_result;
+mod related_change_and_commit_info;
+mod related_changes_info;
 mod restack;
 mod restack_push;
 mod submit_label;
@@ -49,10 +55,10 @@ fn main() -> miette::Result<()> {
             restack,
         } => {
             let git = Git::new();
-            let gerrit = git.gerrit(None)?;
+            let mut gerrit = git.gerrit(None)?;
             if restack {
                 let branch_str = branch.as_deref().unwrap_or("HEAD");
-                let todo = create_todo(&gerrit, branch_str)?;
+                let todo = create_todo(&mut gerrit, branch_str)?;
                 todo.write(&git)?;
                 gerrit.push(branch.clone(), target)?;
                 gerrit.restack(branch_str)?;
@@ -100,7 +106,7 @@ fn main() -> miette::Result<()> {
         }
         cli::Command::Restack { command } => {
             let git = Git::new();
-            let gerrit = git.gerrit(None)?;
+            let mut gerrit = git.gerrit(None)?;
             match command {
                 None => {
                     gerrit.restack("HEAD")?;
@@ -142,6 +148,12 @@ fn main() -> miette::Result<()> {
             let mut gerrit = git.gerrit(None)?;
             let response = gerrit.http_request(method, &endpoint)?;
             let _ = stdoutln!("{response}");
+        }
+        cli::Command::ShowChain { query } => {
+            let git = Git::new();
+            let mut gerrit = git.gerrit(None)?;
+            let chain = gerrit.format_chain(query)?;
+            let _ = stdoutln!("{chain}");
         }
     }
 
