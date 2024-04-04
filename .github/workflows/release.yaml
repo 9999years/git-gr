@@ -106,6 +106,12 @@ jobs:
             target/x86_64-apple-darwin/release/git-gr \
             target/aarch64-apple-darwin/release/git-gr
 
+      - name: Install dependencies (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install musl-tools
+
       - name: Build (Linux, x86_64)
         if: runner.os == 'Linux'
         uses: houseabsolute/actions-rust-cross@v0
