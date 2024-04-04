@@ -137,6 +137,12 @@ fn main() -> miette::Result<()> {
             let gerrit = git.gerrit(None)?;
             gerrit.print_query(query)?;
         }
+        cli::Command::Api { method, endpoint } => {
+            let git = Git::new();
+            let mut gerrit = git.gerrit(None)?;
+            let response = gerrit.http_request(method, &endpoint)?;
+            let _ = stdoutln!("{response}");
+        }
     }
 
     Ok(())
