@@ -50,11 +50,11 @@ impl Git {
             .collect())
     }
 
-    /// Get the (fetch) URL for the given remote.
+    /// Get the (push) URL for the given remote.
     pub fn remote_url(&self, remote: &str) -> miette::Result<String> {
         Ok(self
             .command()
-            .args(["remote", "get-url", &remote])
+            .args(["remote", "get-url", "--push", &remote])
             .output_checked_utf8()
             .into_diagnostic()
             .wrap_err("Failed to get Git remote URL")?
