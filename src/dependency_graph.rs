@@ -5,8 +5,10 @@ use std::collections::VecDeque;
 use std::sync::Arc;
 
 use miette::miette;
+use owo_colors::OwoColorize;
 use parking_lot::Mutex;
 
+use crate::change_metadata::ChangeMetadata;
 use crate::change_number::ChangeNumber;
 use crate::dependency_graph_builder::DependencyGraphBuilder;
 use crate::format_bulleted_list;
@@ -26,6 +28,7 @@ pub struct DependsOnRelation {
 #[derive(serde::Deserialize, serde::Serialize, Debug, Clone)]
 pub struct DependencyGraph {
     pub root: ChangeNumber,
+    pub(crate) metadata: BTreeMap<ChangeNumber, ChangeMetadata>,
     pub(crate) dependencies: BTreeMap<ChangeNumber, ChangeNumber>,
     pub(crate) reverse_dependencies: BTreeMap<ChangeNumber, BTreeSet<ChangeNumber>>,
 }
@@ -34,6 +37,7 @@ impl DependencyGraph {
     pub fn new(root: ChangeNumber) -> Self {
         Self {
             root,
+            metadata: Default::default(),
             dependencies: Default::default(),
             reverse_dependencies: Default::default(),
         }
@@ -127,7 +131,8 @@ impl DependencyGraph {
         while let Some(change) = queue.pop_back() {
             let tree = Arc::clone(match trees.entry(change) {
                 Entry::Vacant(entry) => {
-                    let mut label = vec![change.pretty(gerrit)?];
+                    let pretty = change.pretty(gerrit)?;
+                    let mut label = vec![pretty];
                     label.extend(extra_label(change)?);
                     entry.insert(Arc::new(Mutex::new(Tree::leaf(label))))
                 }

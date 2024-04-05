@@ -2,6 +2,7 @@ mod approval;
 mod author;
 mod change;
 mod change_id;
+mod change_metadata;
 mod change_number;
 mod change_status;
 mod cli;

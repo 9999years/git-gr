@@ -310,6 +310,10 @@ pub fn create_todo(gerrit: &mut GerritGitRemote, branch: &str) -> miette::Result
             if roots.contains(&change) {
                 // Change is root, cherry-pick on target branch.
                 let change = gerrit.get_current_patch_set(change)?;
+                if !change.change.open {
+                    tracing::debug!("Change is abandoned; skipping");
+                    continue;
+                }
                 let step = Step {
                     change: change.change.number,
                     onto: RestackOnto::Branch {

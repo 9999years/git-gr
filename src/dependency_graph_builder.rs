@@ -5,6 +5,7 @@ use std::collections::VecDeque;
 
 use miette::Context;
 
+use crate::change_metadata::ChangeMetadata;
 use crate::change_number::ChangeNumber;
 use crate::dependency_graph::DependencyGraph;
 use crate::dependency_graph::DependsOnRelation;
@@ -36,23 +37,30 @@ impl<'a> DependencyGraphBuilder<'a> {
 
     fn dependencies(&mut self, change: ChangeNumber) -> miette::Result<&ChangeDependencies> {
         match self.dependencies.entry(change) {
-            Entry::Vacant(entry) => Ok(entry.insert(
-                self.gerrit
+            Entry::Vacant(entry) => {
+                let change = self
+                    .gerrit
                     .dependencies(change)
                     .wrap_err("Failed to get change dependencies")?
-                    .filter_unmerged(self.gerrit)?,
-            )),
+                    .filter_unmerged(self.gerrit)?;
+                self.inner
+                    .metadata
+                    .insert(change.change.number, ChangeMetadata::new(&change.change));
+                Ok(entry.insert(change))
+            }
             Entry::Occupied(entry) => Ok(entry.into_mut()),
         }
     }
 
     fn related(&mut self, change: ChangeNumber) -> miette::Result<&RelatedChangesInfo> {
         match self.related.entry(change) {
-            Entry::Vacant(entry) => Ok(entry.insert(
-                self.gerrit
+            Entry::Vacant(entry) => {
+                let change = self
+                    .gerrit
                     .related_changes(change, None)
-                    .wrap_err("Failed to get related changes")?,
-            )),
+                    .wrap_err("Failed to get related changes")?;
+                Ok(entry.insert(change))
+            }
             Entry::Occupied(entry) => Ok(entry.into_mut()),
         }
     }
