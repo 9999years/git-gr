@@ -77,7 +77,26 @@ pub enum Command {
         out_dir: camino::Utf8PathBuf,
     },
     /// Query changes.
-    Query { query: String },
+    Query {
+        /// Show change you own.
+        ///
+        /// Adds `is:open owner:self` to the query.
+        #[arg(long)]
+        mine: bool,
+
+        /// Show changes by others that need review.
+        ///
+        /// Adds `is:open -owner:self -is:wip -is:reviewed` to the query.
+        #[arg(long)]
+        needs_review: bool,
+
+        /// Query to search for.
+        ///
+        /// Defaults to `status:open -is:wip`.
+        ///
+        /// See: https://gerrit.lix.systems/Documentation/user-search.html
+        query: Option<String>,
+    },
     /// Run a `gerrit` command on the remote server.
     Cli {
         /// Arguments to pass to `gerrit`.
