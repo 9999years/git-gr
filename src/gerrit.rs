@@ -398,7 +398,7 @@ impl Gerrit {
         let mut table = comfy_table::Table::new();
         table
             .load_preset(comfy_table::presets::NOTHING)
-            .set_content_arrangement(comfy_table::ContentArrangement::DynamicFullWidth)
+            .set_content_arrangement(comfy_table::ContentArrangement::Dynamic)
             .set_header(
                 [
                     "#", "Subject",
