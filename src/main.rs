@@ -138,9 +138,34 @@ fn main() -> miette::Result<()> {
                 .into_diagnostic()
                 .wrap_err("Failed to generate man pages")?;
         }
-        cli::Command::Query { query } => {
+        cli::Command::Query {
+            query,
+            mine,
+            needs_review,
+        } => {
             let git = Git::new();
             let gerrit = git.gerrit(None)?;
+
+            let mut query = match query {
+                Some(query) => query,
+                None => {
+                    if mine || needs_review {
+                        "".to_owned()
+                    } else {
+                        "status:open -is:wip".to_owned()
+                    }
+                }
+            };
+
+            if mine {
+                query.push_str(" is:open owner:self");
+            }
+            if needs_review {
+                if !mine {
+                    query.push_str(" is:open -owner:self");
+                }
+                query.push_str(" -is:wip -is:reviewed");
+            }
             gerrit.print_query(query)?;
         }
         cli::Command::Api { method, endpoint } => {
