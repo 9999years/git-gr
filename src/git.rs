@@ -184,12 +184,6 @@ impl Git {
 
             let url = self.remote_url(&remote)?;
 
-            if !remote.contains("gerrit") && !url.contains("gerrit") {
-                // Shrugs!
-                tracing::debug!(remote, url, "Skipping remote");
-                continue;
-            }
-
             tried.push(url.clone());
 
             match GerritGitRemote::from_remote(&remote, &url) {
