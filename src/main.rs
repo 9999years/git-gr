@@ -9,6 +9,7 @@ mod change_status;
 mod cli;
 mod commit_hash;
 mod commit_info;
+mod current_exe;
 mod current_patch_set;
 mod dependency_graph;
 mod dependency_graph_builder;
@@ -134,6 +135,9 @@ fn main() -> miette::Result<()> {
                     }
                     cli::Restack::This => {
                         gerrit.restack_this()?;
+                    }
+                    cli::Restack::WriteTodo { git_rebase_todo } => {
+                        gerrit.restack_write_git_rebase_todo(&git_rebase_todo)?;
                     }
                 },
             }

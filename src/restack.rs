@@ -48,25 +48,26 @@ impl RestackTodo {
     fn perform_step(
         &mut self,
         step: &Step,
-        gerrit: &GerritGitRemote,
+        gerrit: &mut GerritGitRemote,
         fetched: &mut bool,
     ) -> miette::Result<()> {
         let git = gerrit.git();
 
         match &step.onto {
             RestackOnto::Branch { remote, branch } => {
-                // Change is root, cherry-pick on target branch.
+                // Change is root, rebase on target branch.
                 if !*fetched {
                     git.fetch(remote)?;
                     *fetched = true;
                 }
-                let parent = format!("{}/{}", remote, branch);
-                git.checkout_quiet(&parent)?;
-                git.detach_head()?;
+
                 let old_head = gerrit.fetch_cl(gerrit.get_change(step.change)?.patchset())?;
                 let change_display = step.change.pretty(gerrit)?;
                 tracing::info!("Restacking change {} on {}", change_display, branch);
-                git.cherry_pick(&old_head)?;
+
+                let parent = format!("{}/{}", remote, branch);
+                git.detach_head()?;
+                gerrit.rebase_interactive(&parent)?;
                 self.refs.insert(
                     step.change,
                     RefUpdate {
@@ -77,7 +78,7 @@ impl RestackTodo {
             }
             RestackOnto::Change(parent) => {
                 let change_display = step.change.pretty(gerrit)?;
-                // Change is not root, cherry-pick on parent.
+                // Change is not root, rebase on parent.
                 let parent_ref = match self.refs.get(parent) {
                     Some(update) => {
                         tracing::debug!("Updated ref for {parent}: {update}");
@@ -90,10 +91,11 @@ impl RestackTodo {
                     }
                 };
                 let parent_display = parent.pretty(gerrit)?;
-                git.checkout(&parent_ref)?;
                 let old_head = gerrit.fetch_cl(gerrit.get_change(step.change)?.patchset())?;
+
                 tracing::info!("Restacking change {} on {}", change_display, parent_display);
-                git.cherry_pick(&old_head)?;
+                git.detach_head()?;
+                gerrit.rebase_interactive(&parent_ref)?;
                 self.refs.insert(
                     step.change,
                     RefUpdate {
@@ -161,10 +163,10 @@ pub fn restack(gerrit: &mut GerritGitRemote, branch: &str) -> miette::Result<()>
     match &todo.in_progress {
         Some(step) => {
             tracing::info!("Continuing to restack {step}");
-            let old_head = git.rev_parse("CHERRY_PICK_HEAD")?;
+            let old_head = git.rev_parse("REBASE_HEAD")?;
             match git
                 .command()
-                .args(["cherry-pick", "--continue"])
+                .args(["rebase", "--continue"])
                 .status_checked()
                 .map(|_| ())
                 .into_diagnostic()
@@ -247,13 +249,30 @@ pub fn restack(gerrit: &mut GerritGitRemote, branch: &str) -> miette::Result<()>
     Ok(())
 }
 
+pub fn format_git_rebase_todo(gerrit: &mut GerritGitRemote) -> miette::Result<String> {
+    let todo = get_todo(gerrit)?.ok_or_else(|| miette!("No restack in progress"))?;
+
+    match todo.steps.front() {
+        Some(step) => {
+            let change = gerrit.get_change(step.change)?;
+            let commit = gerrit.fetch_cl(change.patchset())?;
+            Ok(format!(
+                "pick {} {}\n",
+                commit,
+                change.subject.as_deref().unwrap_or("")
+            ))
+        }
+        None => Err(miette!("Restack is already complete")),
+    }
+}
+
 pub fn restack_abort(git: &Git) -> miette::Result<()> {
     let todo_path = todo_path(git)?;
     if todo_path.exists() {
         fs::remove_file(todo_path).into_diagnostic()?;
     }
     git.command()
-        .args(["cherry-pick", "--abort"])
+        .args(["rebase", "--abort"])
         .status_checked()
         .into_diagnostic()?;
     Ok(())
@@ -265,9 +284,14 @@ fn todo_path(git: &Git) -> miette::Result<Utf8PathBuf> {
 }
 
 fn get_or_create_todo(gerrit: &mut GerritGitRemote, branch: &str) -> miette::Result<RestackTodo> {
-    get_todo(gerrit)?
-        .map(Ok)
-        .unwrap_or_else(|| create_todo(gerrit, branch))
+    match get_todo(gerrit)? {
+        Some(todo) => Ok(todo),
+        None => {
+            let todo = create_todo(gerrit, branch)?;
+            todo.write(&gerrit.git())?;
+            Ok(todo)
+        }
+    }
 }
 
 pub fn get_todo(gerrit: &GerritGitRemote) -> miette::Result<Option<RestackTodo>> {

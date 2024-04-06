@@ -1,16 +1,18 @@
 use std::fmt::Debug;
+use std::io::BufWriter;
+use std::io::Write;
 use std::ops::Deref;
 use std::ops::DerefMut;
 use std::process::Command;
 use std::sync::OnceLock;
-use std::time::Duration;
 
-use cached::DiskCache;
 use cached::IOCached;
+use camino::Utf8Path;
 use comfy_table::Attribute;
 use comfy_table::Cell;
 use command_error::CommandExt;
 use command_error::OutputContext;
+use fs_err::File;
 use miette::miette;
 use miette::Context;
 use miette::IntoDiagnostic;
@@ -24,11 +26,13 @@ use utf8_command::Utf8Output;
 
 use crate::cache::CacheKey;
 use crate::cache::CacheValue;
+use crate::cache::GerritCache;
 use crate::change::Change;
 use crate::change::TimestampFormat;
 use crate::change_key::ChangeKey;
 use crate::change_number::ChangeNumber;
 use crate::commit_hash::CommitHash;
+use crate::current_exe::current_exe;
 use crate::dependency_graph::DependencyGraph;
 use crate::endpoint::Endpoint;
 use crate::format_bulleted_list;
@@ -38,13 +42,11 @@ use crate::patchset::ChangePatchset;
 use crate::query::QueryOptions;
 use crate::query_result::QueryResult;
 use crate::related_changes_info::RelatedChangesInfo;
+use crate::restack::format_git_rebase_todo;
 use crate::restack::restack;
 use crate::restack::restack_abort;
 use crate::restack_push::restack_push;
 use crate::tmpdir::ssh_control_path;
-
-const SECONDS_PER_MINUTE: u64 = 60;
-const CACHE_LIFESPAN: Duration = Duration::from_secs(10 * SECONDS_PER_MINUTE);
 
 /// Gerrit SSH client wrapper.
 pub struct Gerrit {
@@ -56,7 +58,7 @@ pub struct Gerrit {
     http_password: Option<SecretString>,
     http_client: Option<reqwest::blocking::Client>,
 
-    cache: DiskCache<CacheKey, CacheValue>,
+    cache: GerritCache,
 }
 
 impl Debug for Gerrit {
@@ -69,10 +71,7 @@ impl Debug for Gerrit {
 
 impl Gerrit {
     pub fn new(host: GerritProject) -> miette::Result<Self> {
-        let cache = DiskCache::new(&host.to_string())
-            .set_lifespan(CACHE_LIFESPAN.as_secs())
-            .build()
-            .into_diagnostic()?;
+        let cache = GerritCache::new(&host)?;
         Ok(Self {
             host,
             http_password: None,
@@ -82,24 +81,16 @@ impl Gerrit {
     }
 
     pub fn clear_cache(&mut self) {
-        // `cached` has no `cache_clear` operation, so we have to do this workaround.
-        // See: https://github.com/jaemk/cached/issues/197
+        self.cache.clear_cache();
+    }
 
-        // BUG: `remove_expired_entries` only removes _unexpired_ entries, so we need to set
-        // the expiration time to ~infinity for this to work.
-        // See: https://github.com/jaemk/cached/pull/198
-        let lifespan = self.cache.cache_set_lifespan(u64::MAX);
+    pub fn deattach_cache(&mut self) {
+        self.cache.deattach_cache();
+    }
 
-        self.cache.remove_expired_entries();
-
-        match lifespan {
-            Some(lifespan) => {
-                self.cache.cache_set_lifespan(lifespan);
-            }
-            None => {
-                self.cache.cache_set_lifespan(CACHE_LIFESPAN.as_secs());
-            }
-        }
+    pub fn attach_cache(&mut self) -> miette::Result<()> {
+        self.cache.attach_cache(&self.host)?;
+        Ok(())
     }
 
     pub fn git(&self) -> Git {
@@ -207,6 +198,12 @@ impl Gerrit {
 
     pub fn dependency_graph(&mut self, root: ChangeNumber) -> miette::Result<DependencyGraph> {
         DependencyGraph::traverse(self, root)
+    }
+
+    pub fn git_sequence_editor(&self) -> miette::Result<String> {
+        let exe = current_exe()?;
+        let exe = shell_words::quote(exe.as_str());
+        Ok(format!("{exe} restack write-todo"))
     }
 
     /// Fetch a CL.
@@ -404,6 +401,14 @@ impl Gerrit {
         Ok(table)
     }
 
+    pub fn rebase_interactive(&mut self, onto: &str) -> miette::Result<()> {
+        self.deattach_cache();
+        self.git()
+            .rebase_interactive(&self.git_sequence_editor()?, onto)?;
+        self.attach_cache()?;
+        Ok(())
+    }
+
     /// Ensure that this object has an HTTP password set.
     pub fn generate_http_password(&mut self) -> miette::Result<()> {
         if self.http_password.is_some() {
@@ -554,7 +559,7 @@ impl GerritGitRemote {
         })
     }
 
-    pub fn restack_this(&self) -> miette::Result<()> {
+    pub fn restack_this(&mut self) -> miette::Result<()> {
         let change_id = self
             .git()
             .change_id("HEAD")
@@ -585,11 +590,9 @@ impl GerritGitRemote {
             depends_on.number,
             depends_on.current_patch_set.revision
         );
-        self.git()
-            .command()
-            .args(["rebase", &depends_on.current_patch_set.revision])
-            .status_checked()
-            .into_diagnostic()?;
+        let git = self.git();
+        git.detach_head()?;
+        self.rebase_interactive(&depends_on.current_patch_set.revision)?;
         Ok(())
     }
 
@@ -631,6 +634,16 @@ impl GerritGitRemote {
 
     pub fn restack_push(&self) -> miette::Result<()> {
         restack_push(self)
+    }
+
+    pub fn restack_write_git_rebase_todo(&mut self, path: &Utf8Path) -> miette::Result<()> {
+        let mut file = BufWriter::new(File::create(path).into_diagnostic()?);
+
+        let todo = format_git_rebase_todo(self)?;
+
+        write!(file, "{todo}").into_diagnostic()?;
+
+        Ok(())
     }
 
     pub fn format_chain(&mut self, query: Option<String>) -> miette::Result<String> {
