@@ -651,7 +651,7 @@ checksum = "4271d37baee1b8c7e4b708028c57d816cf9d2434acb33a549475f78c181f6253"
 
 [[package]]
 name = "git-gr"
-version = "1.3.0"
+version = "1.4.0"
 dependencies = [
  "cached",
  "calm_io",
