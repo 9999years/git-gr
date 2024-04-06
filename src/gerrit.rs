@@ -607,6 +607,20 @@ impl GerritGitRemote {
             None => "HEAD".to_owned(),
         };
         git.gerrit_push(&self.remote, &branch, &target)?;
+        let change_id = git.change_id(&branch)?;
+        match self.get_change(change_id) {
+            Ok(change) => {
+                self.cache
+                    .cache_remove(&CacheKey::Change(change.number))
+                    .into_diagnostic()?;
+                self.cache
+                    .cache_remove(&CacheKey::ChangeId(change.id))
+                    .into_diagnostic()?;
+            }
+            Err(error) => {
+                tracing::debug!("Ignoring error from fetching change before pushing: {error}");
+            }
+        }
         Ok(())
     }
 
