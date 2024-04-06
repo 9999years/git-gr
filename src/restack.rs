@@ -4,6 +4,7 @@ use std::collections::VecDeque;
 use std::fmt::Display;
 use std::io::BufReader;
 use std::io::BufWriter;
+use std::ops::Deref;
 
 use camino::Utf8PathBuf;
 use command_error::CommandExt;
@@ -15,6 +16,7 @@ use miette::IntoDiagnostic;
 
 use crate::change_number::ChangeNumber;
 use crate::change_status::ChangeStatus;
+use crate::cli::RestackContinue;
 use crate::commit_hash::CommitHash;
 use crate::dependency_graph::DependencyGraph;
 use crate::gerrit::GerritGitRemote;
@@ -32,7 +34,7 @@ pub struct RestackTodo {
     /// Map from change numbers to updated commit hashes.
     pub refs: BTreeMap<ChangeNumber, RefUpdate>,
     /// Restack step in progress, if any.
-    in_progress: Option<Step>,
+    in_progress: Option<InProgress>,
 }
 
 impl RestackTodo {
@@ -155,15 +157,39 @@ impl Display for RefUpdate {
     }
 }
 
-pub fn restack(gerrit: &mut GerritGitRemote, branch: &str) -> miette::Result<()> {
+pub fn restack(
+    gerrit: &mut GerritGitRemote,
+    branch: &str,
+    options: Option<RestackContinue>,
+) -> miette::Result<()> {
     let git = gerrit.git();
     let mut fetched = false;
     let mut todo = get_or_create_todo(gerrit, branch)?;
 
-    match &todo.in_progress {
-        Some(step) => {
+    if let Some(step) = todo.in_progress.take() {
+        if options
+            .as_ref()
+            .map(|options| options.restart_in_progress)
+            .unwrap_or(false)
+        {
+            tracing::info!("Retrying restacking {step}");
+            todo.steps.push_front(step.inner);
+        } else if let Some(commit) =
+            options.and_then(|mut options| options.in_progress_commit.take())
+        {
+            tracing::info!(
+                "Using `--in-progress-commit`; restacking {step} produced commit {commit}"
+            );
+            todo.refs.insert(
+                step.change,
+                RefUpdate {
+                    old: step.old_head,
+                    new: commit,
+                },
+            );
+            todo.write(&git)?;
+        } else if git.rebase_in_progress()? {
             tracing::info!("Continuing to restack {step}");
-            let old_head = git.rev_parse("REBASE_HEAD")?;
             match git
                 .command()
                 .args(["rebase", "--continue"])
@@ -176,7 +202,7 @@ pub fn restack(gerrit: &mut GerritGitRemote, branch: &str) -> miette::Result<()>
                     todo.refs.insert(
                         step.change,
                         RefUpdate {
-                            old: old_head,
+                            old: step.old_head,
                             new: git.get_head()?,
                         },
                     );
@@ -186,8 +212,33 @@ pub fn restack(gerrit: &mut GerritGitRemote, branch: &str) -> miette::Result<()>
                     return error;
                 }
             }
+        } else {
+            let head = git.get_head()?;
+            let change_id = git.change_id(&head)?;
+            let expect_change = gerrit.get_change(step.change)?;
+
+            tracing::warn!(
+                "Please use `git gr restack continue` instead of `git rebase --continue`"
+            );
+            if change_id == expect_change.id {
+                // OK, the user just did `git rebase --continue` on their own.
+                todo.refs.insert(
+                    step.change,
+                    RefUpdate {
+                        old: step.old_head,
+                        new: head,
+                    },
+                );
+                todo.write(&git)?;
+            } else {
+                // The user did `git rebase --continue` on their own and then did
+                // something else...
+                return Err(miette!(
+                    "Cannot find commit for change {}; use `git gr restack continue --in-progress-commit` or `--restart-in-progress` to continue",
+                    expect_change.number.pretty(gerrit)?
+                ));
+            }
         }
-        None => {}
     }
 
     if todo.refs.is_empty() {
@@ -210,15 +261,22 @@ pub fn restack(gerrit: &mut GerritGitRemote, branch: &str) -> miette::Result<()>
     }
 
     while let Some(step) = todo.steps.pop_front() {
+        let old_head = gerrit.fetch_cl(gerrit.get_change(step.change)?.patchset())?;
+        let in_progress = InProgress {
+            inner: step,
+            old_head,
+        };
+
         let step_result = todo
-            .perform_step(&step, gerrit, &mut fetched)
-            .wrap_err_with(|| format!("Failed to restack {step}"));
+            .perform_step(&in_progress, gerrit, &mut fetched)
+            .wrap_err_with(|| format!("Failed to restack {}", in_progress));
+
         match step_result {
             Ok(()) => {
                 todo.write(&git)?;
             }
             error @ Err(_) => {
-                todo.in_progress = Some(step);
+                todo.in_progress = Some(in_progress);
                 todo.write(&git)?;
                 return error.wrap_err(CONTINUE_MESSAGE);
             }
@@ -271,10 +329,12 @@ pub fn restack_abort(git: &Git) -> miette::Result<()> {
     if todo_path.exists() {
         fs::remove_file(todo_path).into_diagnostic()?;
     }
-    git.command()
-        .args(["rebase", "--abort"])
-        .status_checked()
-        .into_diagnostic()?;
+    if git.rebase_in_progress()? {
+        git.command()
+            .args(["rebase", "--abort"])
+            .status_checked()
+            .into_diagnostic()?;
+    }
     Ok(())
 }
 
@@ -383,4 +443,26 @@ pub fn create_todo(gerrit: &mut GerritGitRemote, branch: &str) -> miette::Result
     }
 
     Ok(todo)
+}
+
+#[derive(serde::Deserialize, serde::Serialize, Debug, Clone)]
+struct InProgress {
+    /// The step in progress.
+    inner: Step,
+    /// The HEAD commit of the change before restacking.
+    old_head: CommitHash,
+}
+
+impl Deref for InProgress {
+    type Target = Step;
+
+    fn deref(&self) -> &Self::Target {
+        &self.inner
+    }
+}
+
+impl Display for InProgress {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.inner)
+    }
 }

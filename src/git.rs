@@ -218,6 +218,13 @@ impl Git {
         Ok(())
     }
 
+    /// Determine if a rebase is currently in progress.
+    pub fn rebase_in_progress(&self) -> miette::Result<bool> {
+        let git_dir = self.get_git_dir()?;
+        let rebase_dir = git_dir.join("rebase-merge");
+        Ok(rebase_dir.exists())
+    }
+
     pub fn fetch(&self, remote: &str) -> miette::Result<()> {
         self.command()
             .args(["fetch", remote])
