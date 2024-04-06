@@ -14,12 +14,12 @@ use crate::format_bulleted_list;
 use crate::gerrit::GerritGitRemote;
 
 /// `git` CLI wrapper.
-#[derive(Debug)]
+#[derive(Debug, Default)]
 pub struct Git {}
 
 impl Git {
     pub fn new() -> Self {
-        Self {}
+        Default::default()
     }
 
     /// Get a `git` command.

@@ -40,7 +40,7 @@ impl Display for CacheKey {
 
 #[derive(serde::Serialize, serde::Deserialize, Debug, Clone)]
 pub enum CacheValue {
-    Change(Change),
+    Change(Box<Change>),
     Fetch(CommitHash),
     Query(QueryResult<Change>),
     Api(String),

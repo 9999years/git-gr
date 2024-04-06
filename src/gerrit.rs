@@ -164,17 +164,14 @@ impl Gerrit {
     }
 
     fn cache_change(&self, change: Change) -> miette::Result<()> {
+        let number = change.number;
+        let id = change.id.clone();
+        let value = CacheValue::Change(Box::new(change));
         self.cache
-            .cache_set(
-                CacheKey::Change(change.number),
-                CacheValue::Change(change.clone()),
-            )
+            .cache_set(CacheKey::Change(number), value.clone())
             .into_diagnostic()?;
         self.cache
-            .cache_set(
-                CacheKey::ChangeId(change.id.clone()),
-                CacheValue::Change(change),
-            )
+            .cache_set(CacheKey::ChangeId(id), value)
             .into_diagnostic()?;
 
         Ok(())
@@ -188,7 +185,7 @@ impl Gerrit {
             .into_diagnostic()?
         {
             return match value {
-                CacheValue::Change(change) => Ok(change),
+                CacheValue::Change(change) => Ok(*change),
                 _ => Err(miette!("Cached value isn't a change: {value:?}")),
             };
         }
