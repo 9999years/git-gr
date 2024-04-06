@@ -14,6 +14,7 @@ use miette::Context;
 use miette::IntoDiagnostic;
 
 use crate::change_number::ChangeNumber;
+use crate::change_status::ChangeStatus;
 use crate::commit_hash::CommitHash;
 use crate::dependency_graph::DependencyGraph;
 use crate::gerrit::GerritGitRemote;
@@ -308,9 +309,20 @@ pub fn create_todo(gerrit: &mut GerritGitRemote, branch: &str) -> miette::Result
         queue.push_front(*root);
 
         while let Some(change) = queue.pop_back() {
-            if roots.contains(&change) {
+            let change = gerrit.get_change(change)?;
+
+            match change.status {
+                ChangeStatus::New => {
+                    // Carry on.
+                }
+                ChangeStatus::Merged | ChangeStatus::Abandoned => {
+                    tracing::debug!("Skipping merged/abandoned change {}", change.number);
+                    continue;
+                }
+            }
+
+            if roots.contains(&change.number) {
                 // Change is root, cherry-pick on target branch.
-                let change = gerrit.get_change(change)?;
                 let step = Step {
                     change: change.number,
                     onto: RestackOnto::Branch {
@@ -324,18 +336,18 @@ pub fn create_todo(gerrit: &mut GerritGitRemote, branch: &str) -> miette::Result
                 // Change is not root, cherry-pick on parent.
                 let parent = todo
                     .graph
-                    .depends_on(change)
-                    .ok_or_else(|| miette!("Change does not have parent: {change}"))?;
+                    .depends_on(change.number)
+                    .ok_or_else(|| miette!("Change does not have parent: {}", change.number))?;
 
                 let step = Step {
-                    change,
+                    change: change.number,
                     onto: RestackOnto::Change(parent),
                 };
                 tracing::debug!(%step, "Discovered restack step");
                 todo.steps.push_back(step);
             }
 
-            let reverse_dependencies = todo.graph.needed_by(change);
+            let reverse_dependencies = todo.graph.needed_by(change.number);
 
             for needed_by in reverse_dependencies {
                 if !seen.contains(needed_by) {
