@@ -62,7 +62,7 @@ impl RestackTodo {
                 let parent = format!("{}/{}", remote, branch);
                 git.checkout_quiet(&parent)?;
                 git.detach_head()?;
-                let old_head = gerrit.fetch_cl_quiet(step.change)?;
+                let old_head = gerrit.fetch_cl(gerrit.get_change(step.change)?.patchset())?;
                 let change_display = step.change.pretty(gerrit)?;
                 tracing::info!("Restacking change {} on {}", change_display, branch);
                 git.cherry_pick(&old_head)?;
@@ -83,14 +83,14 @@ impl RestackTodo {
                         update.new.to_owned()
                     }
                     None => {
-                        let parent_ref = gerrit.fetch_cl_quiet(*parent)?;
+                        let parent_ref = gerrit.fetch_cl(gerrit.get_change(*parent)?.patchset())?;
                         tracing::debug!("Fetched ref for {parent}: {}", &parent_ref[..8]);
                         parent_ref
                     }
                 };
                 let parent_display = parent.pretty(gerrit)?;
                 git.checkout(&parent_ref)?;
-                let old_head = gerrit.fetch_cl_quiet(step.change)?;
+                let old_head = gerrit.fetch_cl(gerrit.get_change(step.change)?.patchset())?;
                 tracing::info!("Restacking change {} on {}", change_display, parent_display);
                 git.cherry_pick(&old_head)?;
                 self.refs.insert(
@@ -292,8 +292,9 @@ pub fn create_todo(gerrit: &mut GerritGitRemote, branch: &str) -> miette::Result
     let change_id = git
         .change_id(branch)
         .wrap_err("Failed to get Change-Id for HEAD")?;
+    let change = gerrit.get_change(change_id)?;
     let mut todo = RestackTodo {
-        graph: gerrit.dependency_graph(&change_id)?,
+        graph: gerrit.dependency_graph(change.number)?,
         steps: Default::default(),
         refs: Default::default(),
         in_progress: Default::default(),
@@ -309,12 +310,12 @@ pub fn create_todo(gerrit: &mut GerritGitRemote, branch: &str) -> miette::Result
         while let Some(change) = queue.pop_back() {
             if roots.contains(&change) {
                 // Change is root, cherry-pick on target branch.
-                let change = gerrit.get_current_patch_set(change)?;
+                let change = gerrit.get_change(change)?;
                 let step = Step {
-                    change: change.change.number,
+                    change: change.number,
                     onto: RestackOnto::Branch {
                         remote: gerrit.remote.clone(),
-                        branch: change.change.branch,
+                        branch: change.branch,
                     },
                 };
                 tracing::debug!(%step, "Discovered restack step");

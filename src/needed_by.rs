@@ -1,8 +1,9 @@
 use crate::change_id::ChangeId;
 use crate::change_number::ChangeNumber;
+use crate::commit_hash::CommitHash;
 
 /// A change that the currrent change is needed by.
-#[derive(serde::Deserialize, Debug)]
+#[derive(serde::Serialize, serde::Deserialize, Debug, Clone)]
 #[serde(rename_all = "camelCase")]
 pub struct NeededBy {
     /// Change ID.
@@ -10,7 +11,7 @@ pub struct NeededBy {
     /// Change number.
     pub number: ChangeNumber,
     /// Git commit hash.
-    pub revision: String,
+    pub revision: CommitHash,
     #[serde(default)]
     pub is_current_patch_set: bool,
 }

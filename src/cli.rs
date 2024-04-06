@@ -3,6 +3,8 @@ use clap::Subcommand;
 use reqwest::Method;
 
 use crate::change_number::ChangeNumber;
+use crate::endpoint::Endpoint;
+use crate::patchset::Patchset;
 
 /// A Gerrit CLI.
 #[derive(Debug, Clone, Parser)]
@@ -47,7 +49,7 @@ pub enum Command {
         ///
         /// Defaults to the latest patchset.
         #[arg(short, long)]
-        patchset: Option<u32>,
+        patchset: Option<Patchset>,
     },
     /// Fetch a CL.
     Fetch {
@@ -108,7 +110,7 @@ pub enum Command {
     Api {
         #[arg(short = 'X', long, default_value_t = reqwest::Method::GET)]
         method: Method,
-        endpoint: String,
+        endpoint: Endpoint,
     },
     /// Display a chain of related changes.
     ShowChain {
@@ -124,6 +126,8 @@ pub enum Command {
         /// Defaults to the `HEAD` commit's change.
         query: Option<String>,
     },
+    /// Clear the cache of changes and API responses.
+    ClearCache,
 }
 
 #[derive(Debug, Clone, Subcommand)]

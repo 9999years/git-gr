@@ -1,7 +1,7 @@
 use crate::author::Author;
 
 /// The current patch set in a Gerrit change.
-#[derive(serde::Deserialize, Debug)]
+#[derive(serde::Serialize, serde::Deserialize, Debug, Clone)]
 #[serde(rename_all = "camelCase")]
 #[allow(dead_code)]
 pub struct Approval {

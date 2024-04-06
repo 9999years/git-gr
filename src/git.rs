@@ -14,12 +14,12 @@ use crate::format_bulleted_list;
 use crate::gerrit::GerritGitRemote;
 
 /// `git` CLI wrapper.
-#[derive(Debug)]
+#[derive(Debug, Default)]
 pub struct Git {}
 
 impl Git {
     pub fn new() -> Self {
-        Self {}
+        Default::default()
     }
 
     /// Get a `git` command.
@@ -160,7 +160,7 @@ impl Git {
             .captures(&commit_message);
 
         match captures {
-            Some(captures) => Ok(ChangeId(captures["change_id"].to_owned())),
+            Some(captures) => Ok(ChangeId::new(captures["change_id"].to_owned())),
             None => Err(miette!(
                 "Could not find Change-Id in message for commit {commit}:\n{commit_message}"
             )),
@@ -255,7 +255,7 @@ impl Git {
     }
 
     pub fn rev_parse(&self, commitish: &str) -> miette::Result<CommitHash> {
-        Ok(CommitHash(
+        Ok(CommitHash::new(
             self.command()
                 .args(["rev-parse", commitish])
                 .output_checked_utf8()

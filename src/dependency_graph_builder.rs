@@ -1,23 +1,19 @@
-use std::collections::btree_map::Entry;
-use std::collections::BTreeMap;
 use std::collections::BTreeSet;
 use std::collections::VecDeque;
 
 use miette::Context;
 
+use crate::change::Change;
 use crate::change_number::ChangeNumber;
 use crate::dependency_graph::DependencyGraph;
 use crate::dependency_graph::DependsOnRelation;
 use crate::gerrit::Gerrit;
-use crate::query_result::ChangeDependencies;
 use crate::related_changes_info::RelatedChangesInfo;
 
 pub struct DependencyGraphBuilder<'a> {
     inner: DependencyGraph,
 
     gerrit: &'a mut Gerrit,
-    dependencies: BTreeMap<ChangeNumber, ChangeDependencies>,
-    related: BTreeMap<ChangeNumber, RelatedChangesInfo>,
 }
 
 impl<'a> DependencyGraphBuilder<'a> {
@@ -25,8 +21,6 @@ impl<'a> DependencyGraphBuilder<'a> {
         Self {
             inner: DependencyGraph::new(root),
             gerrit,
-            dependencies: Default::default(),
-            related: Default::default(),
         }
     }
 
@@ -34,27 +28,17 @@ impl<'a> DependencyGraphBuilder<'a> {
         self.inner
     }
 
-    fn dependencies(&mut self, change: ChangeNumber) -> miette::Result<&ChangeDependencies> {
-        match self.dependencies.entry(change) {
-            Entry::Vacant(entry) => Ok(entry.insert(
-                self.gerrit
-                    .dependencies(change)
-                    .wrap_err("Failed to get change dependencies")?
-                    .filter_unmerged(self.gerrit)?,
-            )),
-            Entry::Occupied(entry) => Ok(entry.into_mut()),
-        }
+    fn dependencies(&mut self, change: ChangeNumber) -> miette::Result<Change> {
+        self.gerrit
+            .get_change(change)
+            .wrap_err("Failed to get change dependencies")?
+            .filter_unmerged(self.gerrit)
     }
 
-    fn related(&mut self, change: ChangeNumber) -> miette::Result<&RelatedChangesInfo> {
-        match self.related.entry(change) {
-            Entry::Vacant(entry) => Ok(entry.insert(
-                self.gerrit
-                    .related_changes(change, None)
-                    .wrap_err("Failed to get related changes")?,
-            )),
-            Entry::Occupied(entry) => Ok(entry.into_mut()),
-        }
+    fn related(&mut self, change: ChangeNumber) -> miette::Result<RelatedChangesInfo> {
+        self.gerrit
+            .related_changes(change, None)
+            .wrap_err("Failed to get related changes")
     }
 
     fn indirect_reverse_dependencies(

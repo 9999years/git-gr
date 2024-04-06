@@ -1,7 +1,9 @@
 mod approval;
 mod author;
+mod cache;
 mod change;
 mod change_id;
+mod change_key;
 mod change_number;
 mod change_status;
 mod cli;
@@ -11,12 +13,16 @@ mod current_patch_set;
 mod dependency_graph;
 mod dependency_graph_builder;
 mod depends_on;
+mod endpoint;
 mod format_bulleted_list;
 mod gerrit;
+mod gerrit_host;
+mod gerrit_project;
 mod git;
 mod git_person_info;
 mod install_tracing;
 mod needed_by;
+mod patchset;
 mod query;
 mod query_result;
 mod related_change_and_commit_info;
@@ -39,6 +45,7 @@ use format_bulleted_list::format_bulleted_list;
 use git::Git;
 use install_tracing::install_tracing;
 use miette::IntoDiagnostic;
+use patchset::ChangePatchset;
 use restack::create_todo;
 
 #[allow(unused_imports)]
@@ -71,17 +78,21 @@ fn main() -> miette::Result<()> {
             let gerrit = git.gerrit(None)?;
             match patchset {
                 Some(patchset) => {
-                    gerrit.checkout_cl_patchset(number, patchset)?;
+                    gerrit.checkout_cl(ChangePatchset {
+                        change: number,
+                        patchset,
+                    })?;
                 }
                 None => {
-                    gerrit.checkout_cl(number)?;
+                    gerrit.checkout_cl(gerrit.get_change(number)?.patchset())?;
                 }
             }
         }
         cli::Command::Fetch { number } => {
             let git = Git::new();
             let gerrit = git.gerrit(None)?;
-            let git_ref = gerrit.fetch_cl(number)?;
+            let change = gerrit.get_change(number)?;
+            let git_ref = gerrit.fetch_cl(change.patchset())?;
             let _ = stdoutln!("{git_ref}");
         }
         cli::Command::Up => {
@@ -166,7 +177,9 @@ fn main() -> miette::Result<()> {
                 }
                 query.push_str(" -is:wip -is:reviewed");
             }
-            gerrit.print_query(query)?;
+            let table = gerrit.format_query_results(query)?;
+
+            let _ = stdoutln!("{table}");
         }
         cli::Command::Api { method, endpoint } => {
             let git = Git::new();
@@ -192,6 +205,11 @@ fn main() -> miette::Result<()> {
             webbrowser::open(url)
                 .into_diagnostic()
                 .wrap_err_with(|| format!("Failed to open browser for {url}"))?;
+        }
+        cli::Command::ClearCache => {
+            let git = Git::new();
+            let mut gerrit = git.gerrit(None)?;
+            gerrit.clear_cache();
         }
     }
 
