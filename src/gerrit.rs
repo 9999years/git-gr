@@ -3,8 +3,10 @@ use std::ops::Deref;
 use std::ops::DerefMut;
 use std::process::Command;
 use std::sync::OnceLock;
+use std::time::Duration;
 
-use calm_io::stdoutln;
+use cached::DiskCache;
+use cached::IOCached;
 use comfy_table::Attribute;
 use comfy_table::Cell;
 use command_error::CommandExt;
@@ -20,18 +22,20 @@ use serde::de::DeserializeOwned;
 use tracing::instrument;
 use utf8_command::Utf8Output;
 
+use crate::cache::CacheKey;
+use crate::cache::CacheValue;
 use crate::change::Change;
 use crate::change::TimestampFormat;
+use crate::change_key::ChangeKey;
 use crate::change_number::ChangeNumber;
 use crate::commit_hash::CommitHash;
 use crate::dependency_graph::DependencyGraph;
+use crate::endpoint::Endpoint;
 use crate::format_bulleted_list;
+use crate::gerrit_project::GerritProject;
 use crate::git::Git;
-use crate::query::Query;
+use crate::patchset::ChangePatchset;
 use crate::query::QueryOptions;
-use crate::query_result::ChangeCurrentPatchSet;
-use crate::query_result::ChangeDependencies;
-use crate::query_result::ChangeSubmitRecords;
 use crate::query_result::QueryResult;
 use crate::related_changes_info::RelatedChangesInfo;
 use crate::restack::restack;
@@ -39,99 +43,67 @@ use crate::restack::restack_abort;
 use crate::restack_push::restack_push;
 use crate::tmpdir::ssh_control_path;
 
+const SECONDS_PER_MINUTE: u64 = 60;
+const CACHE_LIFESPAN: Duration = Duration::from_secs(10 * SECONDS_PER_MINUTE);
+
 /// Gerrit SSH client wrapper.
-#[derive(Clone)]
 pub struct Gerrit {
-    username: String,
-    host: String,
-    port: u16,
-    project: String,
+    host: GerritProject,
 
     /// Password for the REST API.
     ///
     /// Generated with `gerrit set-account --generate-http-password`.
     http_password: Option<SecretString>,
     http_client: Option<reqwest::blocking::Client>,
+
+    cache: DiskCache<CacheKey, CacheValue>,
 }
 
 impl Debug for Gerrit {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_tuple("Gerrit").field(&self.remote()).finish()
+        f.debug_tuple("Gerrit")
+            .field(&self.host.to_string())
+            .finish()
     }
 }
-
-impl PartialEq for Gerrit {
-    fn eq(&self, other: &Self) -> bool {
-        self.username == other.username
-            && self.host == other.host
-            && self.port == other.port
-            && self.project == other.project
-    }
-}
-
-impl Eq for Gerrit {}
 
 impl Gerrit {
-    /// Parse a Gerrit configuration from a Git remote URL.
-    pub fn parse_from_remote_url(url: &str) -> miette::Result<Self> {
-        static RE: OnceLock<Regex> = OnceLock::new();
-        let captures = RE
-            .get_or_init(|| {
-                // ssh://USER@HOST:PORT/PROJECT
-                Regex::new(
-                    r"(?x)
-                    ^
-                    ssh://
-                    (?P<user>[[:word:]]+)
-                    @
-                    (?P<host>[[:word:]][[:word:].]*)
-                    :
-                    (?P<port>[0-9]+)
-                    /
-                    (?P<project>[[:word:].]+)
-                    $",
-                )
-                .expect("Regex parses")
-            })
-            .captures(url);
-        match captures {
-            Some(captures) => {
-                let port = &captures["port"];
-                let port = port.parse().into_diagnostic().wrap_err_with(|| {
-                    format!("Failed to parse port `{port}` from Git remote: {url}")
-                })?;
+    pub fn new(host: GerritProject) -> miette::Result<Self> {
+        let cache = DiskCache::new(&host.to_string())
+            .set_lifespan(CACHE_LIFESPAN.as_secs())
+            .build()
+            .into_diagnostic()?;
+        Ok(Self {
+            host,
+            http_password: None,
+            http_client: None,
+            cache,
+        })
+    }
 
-                Ok(Self {
-                    username: captures["user"].to_owned(),
-                    host: captures["host"].to_owned(),
-                    port,
-                    project: captures["project"].to_owned(),
-                    http_password: None,
-                    http_client: None,
-                })
+    pub fn clear_cache(&mut self) {
+        // `cached` has no `cache_clear` operation, so we have to do this workaround.
+        // See: https://github.com/jaemk/cached/issues/197
+
+        // BUG: `remove_expired_entries` only removes _unexpired_ entries, so we need to set
+        // the expiration time to ~infinity for this to work.
+        // See: https://github.com/jaemk/cached/pull/198
+        let lifespan = self.cache.cache_set_lifespan(u64::MAX);
+
+        self.cache.remove_expired_entries();
+
+        match lifespan {
+            Some(lifespan) => {
+                self.cache.cache_set_lifespan(lifespan);
             }
-            None => Err(miette!("Could not parse Git remote as Gerrit URL: {url}")),
+            None => {
+                self.cache.cache_set_lifespan(CACHE_LIFESPAN.as_secs());
+            }
         }
     }
 
     pub fn git(&self) -> Git {
         Git {}
-    }
-
-    /// The `ssh` destination to connect to.
-    pub fn connect_to(&self) -> String {
-        format!("ssh://{}@{}:{}", self.username, self.host, self.port)
-    }
-
-    /// Given an endpoint path, format an HTTP request URL.
-    fn endpoint(&self, endpoint: &str) -> String {
-        let endpoint = endpoint.trim_start_matches('/');
-        format!("https://{}/a/{endpoint}", self.host)
-    }
-
-    pub fn remote(&self) -> String {
-        // TODO: Get remote name.
-        format!("{}/{}", self.connect_to(), self.project)
     }
 
     /// A `gerrit` command to run on the remote.
@@ -146,12 +118,12 @@ impl Gerrit {
                 "ControlPath={}",
                 ssh_control_path(&format!(
                     "git-gr-ssh-{}-{}-{}",
-                    self.username, self.host, self.port
+                    self.host.username, self.host.host, self.host.port
                 ))
             ),
             "-o",
             "ControlPersist=120",
-            &self.connect_to(),
+            &self.host.connect_to(),
             "gerrit",
         ]);
         cmd.args(
@@ -161,11 +133,17 @@ impl Gerrit {
         cmd
     }
 
-    pub fn query<T: DeserializeOwned>(
-        &self,
-        query: QueryOptions,
-    ) -> miette::Result<QueryResult<T>> {
-        self.command(query.into_args())
+    pub fn query(&self, query: QueryOptions) -> miette::Result<QueryResult<Change>> {
+        let key = CacheKey::Query(query.query_string().to_owned());
+        if let Some(value) = self.cache.cache_get(&key).into_diagnostic()? {
+            return match value {
+                CacheValue::Query(result) => Ok(result),
+                _ => Err(miette!("Cached value isn't a set of changes: {value:?}")),
+            };
+        }
+
+        let result = self
+            .command(query.into_args())
             .output_checked_as(|context: OutputContext<Utf8Output>| {
                 if context.status().success() {
                     match QueryResult::from_stdout(&context.output().stdout) {
@@ -176,109 +154,96 @@ impl Gerrit {
                     Err(context.error())
                 }
             })
-            .into_diagnostic()
+            .into_diagnostic()?;
+
+        self.cache
+            .cache_set(key, CacheValue::Query(result.clone()))
+            .into_diagnostic()?;
+
+        Ok(result)
     }
 
-    pub fn get_change<'a>(&self, change: impl Into<Query<'a>>) -> miette::Result<Change> {
-        let change = change.into();
-        let mut result = self.query::<Change>(QueryOptions::new(&change))?;
-        result
+    fn cache_change(&self, change: Change) -> miette::Result<()> {
+        self.cache
+            .cache_set(
+                CacheKey::Change(change.number),
+                CacheValue::Change(change.clone()),
+            )
+            .into_diagnostic()?;
+        self.cache
+            .cache_set(
+                CacheKey::ChangeId(change.id.clone()),
+                CacheValue::Change(change),
+            )
+            .into_diagnostic()?;
+
+        Ok(())
+    }
+
+    pub fn get_change(&self, change: impl Into<ChangeKey>) -> miette::Result<Change> {
+        let change: ChangeKey = change.into();
+        if let Some(value) = self
+            .cache
+            .cache_get(&change.clone().into())
+            .into_diagnostic()?
+        {
+            return match value {
+                CacheValue::Change(change) => Ok(change),
+                _ => Err(miette!("Cached value isn't a change: {value:?}")),
+            };
+        }
+
+        let query = change.to_string();
+        let result = self
+            .query(
+                QueryOptions::new(query.clone())
+                    .current_patch_set()
+                    .dependencies()
+                    .submit_records(),
+            )?
             .changes
             .pop()
-            .ok_or_else(|| miette!("Didn't find change {change}"))
+            .ok_or_else(|| miette!("Didn't find change {query}"))?;
+        self.cache_change(result.clone())?;
+        Ok(result)
     }
 
-    pub fn get_current_patch_set<'a>(
-        &self,
-        change: impl Into<Query<'a>>,
-    ) -> miette::Result<ChangeCurrentPatchSet> {
-        let change = change.into();
-        let mut result =
-            self.query::<ChangeCurrentPatchSet>(QueryOptions::new(&change).current_patch_set())?;
-        result
-            .changes
-            .pop()
-            .ok_or_else(|| miette!("Didn't find change {change}"))
-    }
-
-    pub fn dependencies<'a>(
-        &self,
-        change: impl Into<Query<'a>>,
-    ) -> miette::Result<ChangeDependencies> {
-        let change = change.into();
-        let mut result =
-            self.query::<ChangeDependencies>(QueryOptions::new(&change).dependencies())?;
-        result
-            .changes
-            .pop()
-            .ok_or_else(|| miette!("Didn't find change {change}"))
-    }
-
-    pub fn dependency_graph<'a>(
-        &mut self,
-        change: impl Into<Query<'a>>,
-    ) -> miette::Result<DependencyGraph> {
-        let change = change.into();
-        let change = self.get_change(change)?;
-        DependencyGraph::traverse(self, change.number)
-    }
-
-    fn cl_ref<'a>(&self, change: impl Into<Query<'a>>) -> miette::Result<String> {
-        let change = change.into();
-        Ok(self
-            .get_current_patch_set(change)?
-            .current_patch_set
-            .ref_name)
+    pub fn dependency_graph(&mut self, root: ChangeNumber) -> miette::Result<DependencyGraph> {
+        DependencyGraph::traverse(self, root)
     }
 
     /// Fetch a CL.
     ///
     /// Returns the Git ref of the fetched patchset.
-    pub fn fetch_cl<'a>(&self, change: impl Into<Query<'a>>) -> miette::Result<CommitHash> {
-        let change = change.into();
-        let git = self.git();
-        git.command()
-            .args(["fetch", &self.remote(), &self.cl_ref(change)?])
-            .status_checked()
-            .into_diagnostic()?;
-        // Seriously, `git fetch` doesn't write the fetched ref anywhere but `FETCH_HEAD`?
-        git.rev_parse("FETCH_HEAD")
-    }
+    pub fn fetch_cl(&self, change: ChangePatchset) -> miette::Result<CommitHash> {
+        if let Some(value) = self
+            .cache
+            .cache_get(&CacheKey::Fetch(change))
+            .into_diagnostic()?
+        {
+            return match value {
+                CacheValue::Fetch(hash) => Ok(hash),
+                _ => Err(miette!("Cached value isn't a change: {value:?}")),
+            };
+        }
 
-    /// Fetch a CL without forwarding output to the user's terminal.
-    ///
-    /// Returns the Git ref of the fetched patchset.
-    pub fn fetch_cl_quiet<'a>(&self, change: impl Into<Query<'a>>) -> miette::Result<CommitHash> {
-        let change = change.into();
         let git = self.git();
         git.command()
-            .args(["fetch", &self.remote(), &self.cl_ref(change)?])
+            .args(["fetch", &self.host.remote_url(), &change.git_ref()])
             .output_checked_utf8()
             .into_diagnostic()?;
+
         // Seriously, `git fetch` doesn't write the fetched ref anywhere but `FETCH_HEAD`?
         git.rev_parse("FETCH_HEAD")
     }
 
     /// Checkout a CL.
-    pub fn checkout_cl<'a>(&self, change: impl Into<Query<'a>>) -> miette::Result<()> {
-        let change = change.into();
-        let git_ref = self.fetch_cl(change)?;
+    pub fn checkout_cl(&self, change: ChangePatchset) -> miette::Result<()> {
         let git = self.git();
         git.command()
-            .args(["checkout", &git_ref])
+            .args(["checkout", &self.fetch_cl(change)?])
             .status_checked()
             .into_diagnostic()?;
-        Ok(())
-    }
-
-    /// Checkout a CL at a specific patchset.
-    pub fn checkout_cl_patchset(&self, change: ChangeNumber, patchset: u32) -> miette::Result<()> {
-        let git = self.git();
-        git.command()
-            .args(["fetch", &self.remote(), &change.git_ref(patchset)])
-            .output_checked_utf8()
-            .into_diagnostic()?;
-        git.checkout("FETCH_HEAD")?;
         Ok(())
     }
 
@@ -291,29 +256,29 @@ impl Gerrit {
         let change_id = git
             .change_id("HEAD")
             .wrap_err("Failed to get Change-Id for HEAD")?;
-        let dependencies = self
-            .dependencies(&change_id)
+        let change = self
+            .get_change(change_id)
             .wrap_err("Failed to get change dependencies")?
             .filter_unmerged(self)?;
-        let mut needed_by = dependencies.needed_by_numbers();
+        let mut needed_by = change.needed_by_numbers();
         let needed_by = match needed_by.len() {
             0 => {
                 return Err(miette!(
                     "Change {} isn't needed by any changes",
-                    dependencies.change.number
+                    change.number
                 ));
             }
             1 => needed_by.pop_first().expect("Length was checked"),
             _ => {
                 return Err(miette!(
                         "Change {} is needed by multiple changes; use `git-gr checkout {}` to pick one:\n{}",
-                        dependencies.change.number,
-                        dependencies.change.number,
+                        change.number,
+                        change.number,
                         format_bulleted_list(needed_by)
                     ));
             }
         };
-        self.checkout_cl(needed_by)?;
+        self.checkout_cl(self.get_change(needed_by)?.patchset())?;
         Ok(())
     }
 
@@ -322,32 +287,29 @@ impl Gerrit {
         let change_id = git
             .change_id("HEAD")
             .wrap_err("Failed to get Change-Id for HEAD")?;
-        let change = self.get_change(&change_id)?.number;
-        let mut next = change;
+        let mut next = self.get_change(change_id)?.filter_unmerged(self)?;
 
         loop {
-            let mut needed_by = self
-                .dependencies(next)
-                .wrap_err("Failed to get change dependencies")?
-                .filter_unmerged(self)?
-                .needed_by_numbers();
+            let mut needed_by = next.needed_by_numbers();
 
             next = match needed_by.len() {
                 0 => {
                     break;
                 }
-                1 => needed_by.pop_first().expect("Length was checked"),
+                1 => self
+                    .get_change(needed_by.pop_first().expect("Length was checked"))?
+                    .filter_unmerged(self)?,
                 _ => {
                     return Err(miette!(
                         "Change {} is needed by multiple changes; use `git-gr checkout {}` to pick one:\n{}",
-                        next,
-                        next,
+                        next.number,
+                        next.number,
                         format_bulleted_list(needed_by)
                     ));
                 }
             };
         }
-        self.checkout_cl(next)?;
+        self.checkout_cl(next.patchset())?;
         Ok(())
     }
 
@@ -356,36 +318,42 @@ impl Gerrit {
         let change_id = git
             .change_id("HEAD")
             .wrap_err("Failed to get Change-Id for HEAD")?;
-        let dependencies = self
-            .dependencies(&change_id)
+        let change = self
+            .get_change(change_id)
             .wrap_err("Failed to get change dependencies")?
             .filter_unmerged(self)?;
-        let mut depends_on = dependencies.depends_on_numbers();
+        let mut depends_on = change.depends_on_numbers();
         let depends_on = match depends_on.len() {
             0 => {
                 return Err(miette!(
                     "Change {} doesn't depend on any changes",
-                    dependencies.change.number
+                    change.number
                 ));
             }
             1 => depends_on.pop_first().expect("Length was checked"),
             _ => {
                 return Err(miette!(
                         "Change {} depends on multiple changes, use `git-gr checkout {}` to pick one:\n{}",
-                        dependencies.change.number,
-                        dependencies.change.number,
+                        change.number,
+                        change.number,
                         format_bulleted_list(&depends_on)
                     ));
             }
         };
-        self.checkout_cl(depends_on)?;
+        self.checkout_cl(self.get_change(depends_on)?.patchset())?;
         Ok(())
     }
 
-    pub fn print_query(&self, query: String) -> miette::Result<()> {
-        let results = self
-            .query::<ChangeSubmitRecords>(QueryOptions::new(query).no_limit().submit_records())?;
+    pub fn format_query_results(&self, query: String) -> miette::Result<comfy_table::Table> {
+        let results = self.query(
+            QueryOptions::new(query)
+                .current_patch_set()
+                .dependencies()
+                .submit_records()
+                .no_limit(),
+        )?;
 
+        // TODO: Make this configurable.
         let timestamp_format = if std::env::var("GIT_GR_24_HOUR_TIME")
             .map(|value| !value.is_empty())
             .unwrap_or(false)
@@ -415,11 +383,11 @@ impl Gerrit {
 
         for change in &results.changes {
             table.add_row([
-                Cell::new(change.change.number).add_attribute(Attribute::Bold),
-                Cell::new(change.change.subject.clone().unwrap_or_default()),
-                change.change.last_updated_cell(timestamp_format)?,
-                Cell::new(change.change.owner.username.clone()),
-                change.change.status_cell(),
+                Cell::new(change.number).add_attribute(Attribute::Bold),
+                Cell::new(change.subject.clone().unwrap_or_default()),
+                change.last_updated_cell(timestamp_format)?,
+                Cell::new(change.owner.username.clone()),
+                change.status_cell(),
                 change.ready_cell(),
             ]);
         }
@@ -436,9 +404,7 @@ impl Gerrit {
             .expect("Third column exists")
             .set_cell_alignment(comfy_table::CellAlignment::Right);
 
-        let _ = stdoutln!("{table}");
-
-        Ok(())
+        Ok(table)
     }
 
     /// Ensure that this object has an HTTP password set.
@@ -448,7 +414,11 @@ impl Gerrit {
         }
 
         let output = self
-            .command(["set-account", &self.username, "--generate-http-password"])
+            .command([
+                "set-account",
+                &self.host.username,
+                "--generate-http-password",
+            ])
             .output_checked_utf8()
             .into_diagnostic()?
             .stdout;
@@ -488,10 +458,18 @@ impl Gerrit {
     }
 
     #[instrument()]
-    pub fn http_request(&mut self, method: Method, endpoint: &str) -> miette::Result<String> {
+    pub fn http_request(&mut self, method: Method, endpoint: &Endpoint) -> miette::Result<String> {
+        let key = CacheKey::Api(endpoint.to_owned());
+        if let Some(value) = self.cache.cache_get(&key).into_diagnostic()? {
+            return match value {
+                CacheValue::Api(response) => Ok(response),
+                _ => Err(miette!("Cached value isn't an API response: {value:?}")),
+            };
+        }
+
         self.http_ensure()?;
 
-        let url = self.endpoint(endpoint);
+        let url = self.host.endpoint(endpoint);
 
         let response = self
             .http_client
@@ -499,7 +477,7 @@ impl Gerrit {
             .expect("http_ensure should construct an HTTP client")
             .request(method.clone(), &url)
             .basic_auth(
-                &self.username,
+                &self.host.username,
                 self.http_password
                     .as_ref()
                     .map(|password| password.expose_secret()),
@@ -514,10 +492,16 @@ impl Gerrit {
                 .into_diagnostic()
                 .wrap_err_with(|| format!("Failed to get response body for {url}"))?;
 
-            Ok(body
+            let body = body
                 .strip_prefix(")]}'\n")
                 .map(|body| body.to_owned())
-                .unwrap_or(body))
+                .unwrap_or(body);
+
+            self.cache
+                .cache_set(key, CacheValue::Api(body.clone()))
+                .into_diagnostic()?;
+
+            Ok(body)
         } else {
             Err(miette!(
                 "{method} {url} failed with status {}:\n{}",
@@ -532,7 +516,7 @@ impl Gerrit {
     pub fn http_json<T: DeserializeOwned>(
         &mut self,
         method: Method,
-        endpoint: &str,
+        endpoint: &Endpoint,
     ) -> miette::Result<T> {
         let response = self.http_request(method, endpoint)?;
         serde_json::from_str(&response)
@@ -550,16 +534,16 @@ impl Gerrit {
             .unwrap_or_else(|| "current".to_owned());
         self.http_json::<RelatedChangesInfo>(
             Method::GET,
-            &format!(
-                "/changes/{}~{change_number}/revisions/{revision}/related?o=SUBMITTABLE",
-                self.project
-            ),
+            &Endpoint::new(&format!(
+                "changes/{}~{change_number}/revisions/{revision}/related?o=SUBMITTABLE",
+                self.host.project
+            )),
         )
     }
 }
 
 /// A [`Gerrit`] client tied to a specific Git remote.
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub struct GerritGitRemote {
     pub remote: String,
     inner: Gerrit,
@@ -567,9 +551,9 @@ pub struct GerritGitRemote {
 
 impl GerritGitRemote {
     pub fn from_remote(remote: &str, url: &str) -> miette::Result<Self> {
-        Gerrit::parse_from_remote_url(url).map(|inner| Self {
+        Ok(Self {
             remote: remote.to_owned(),
-            inner,
+            inner: GerritProject::parse_from_remote_url(url).and_then(Gerrit::new)?,
         })
     }
 
@@ -578,34 +562,30 @@ impl GerritGitRemote {
             .git()
             .change_id("HEAD")
             .wrap_err("Failed to get Change-Id for HEAD")?;
-        let change = self.get_change(&change_id)?;
-        let dependencies = self
-            .dependencies(&change_id)
-            .wrap_err("Failed to get change dependencies")?
-            .filter_unmerged(self)?;
-        let mut depends_on = dependencies.depends_on_numbers();
+        let change = self.get_change(change_id)?.filter_unmerged(self)?;
+        let mut depends_on = change.depends_on_numbers();
         let depends_on = match depends_on.len() {
             0 => {
                 return Err(miette!(
                     "Change {} doesn't depend on any changes",
-                    dependencies.change.number
+                    change.number
                 ));
             }
             1 => depends_on.pop_first().expect("Length was checked"),
             _ => {
                 return Err(miette!(
                         "Change {} depends on multiple changes, use `git-gr checkout {}` to pick one:\n{}",
-                        dependencies.change.number,
-                        dependencies.change.number,
+                        change.number,
+                        change.number,
                         format_bulleted_list(&depends_on)
                     ));
             }
         };
-        let depends_on = self.get_current_patch_set(depends_on)?;
+        let depends_on = self.get_change(depends_on)?;
         tracing::info!(
             "Rebasing {} on {}: {}",
             change.number,
-            depends_on.change.number,
+            depends_on.number,
             depends_on.current_patch_set.revision
         );
         self.git()
@@ -650,7 +630,7 @@ impl GerritGitRemote {
                 let change_id = git
                     .change_id("HEAD")
                     .wrap_err("Failed to get Change-Id for HEAD")?;
-                self.get_change(&change_id)?.number
+                self.get_change(change_id)?.number
             }
         };
         let mut graph = DependencyGraph::traverse(self, change_number)?;
@@ -690,26 +670,5 @@ impl Deref for GerritGitRemote {
 impl DerefMut for GerritGitRemote {
     fn deref_mut(&mut self) -> &mut Self::Target {
         &mut self.inner
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use pretty_assertions::assert_eq;
-
-    #[test]
-    fn test_gerrit_parse_remote_url() {
-        assert_eq!(
-            Gerrit::parse_from_remote_url("ssh://rbt@ooga.booga.systems:2022/ouppy").unwrap(),
-            Gerrit {
-                username: "rbt".to_owned(),
-                host: "ooga.booga.systems".to_owned(),
-                port: 2022,
-                project: "ouppy".to_owned(),
-                http_password: None,
-                http_client: None
-            }
-        );
     }
 }

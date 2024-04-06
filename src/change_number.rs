@@ -7,7 +7,10 @@ use owo_colors::OwoColorize;
 use owo_colors::Stream::Stderr;
 use owo_colors::Style;
 
+use crate::change::Change;
 use crate::gerrit::Gerrit;
+use crate::patchset::ChangePatchset;
+use crate::patchset::Patchset;
 
 /// A Gerrit change number.
 ///
@@ -36,8 +39,11 @@ impl ChangeNumber {
         }
     }
 
-    pub fn git_ref(&self, patch_number: u32) -> String {
-        format!("refs/changes/{}/{}/{patch_number}", self.last_two(), self)
+    pub fn with_patchset(&self, patchset: Patchset) -> ChangePatchset {
+        ChangePatchset {
+            change: *self,
+            patchset,
+        }
     }
 
     pub fn pretty(&self, gerrit: &Gerrit) -> miette::Result<String> {
@@ -50,6 +56,12 @@ impl ChangeNumber {
                 .unwrap_or_default()
                 .if_supports_color(Stderr, |subject| Style::new().dimmed().style(subject))
         ))
+    }
+}
+
+impl From<Change> for ChangeNumber {
+    fn from(change: Change) -> Self {
+        change.number
     }
 }
 
