@@ -7,5 +7,6 @@ use crate::submit_status::SubmitStatus;
 #[allow(dead_code)]
 pub struct SubmitRecord {
     pub status: SubmitStatus,
+    #[serde(default)]
     labels: Vec<SubmitLabel>,
 }
