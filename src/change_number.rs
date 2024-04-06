@@ -6,8 +6,10 @@ use clap::builder::ValueParserFactory;
 use owo_colors::OwoColorize;
 use owo_colors::Stream::Stderr;
 use owo_colors::Style;
+use tap::Pipe;
 
 use crate::change::Change;
+use crate::change_status::ChangeStatus;
 use crate::gerrit::Gerrit;
 use crate::patchset::ChangePatchset;
 use crate::patchset::Patchset;
@@ -47,10 +49,28 @@ impl ChangeNumber {
     }
 
     pub fn pretty(&self, gerrit: &Gerrit) -> miette::Result<String> {
-        let subject = gerrit.get_change(*self)?.subject;
+        let change = gerrit.get_change(*self)?;
+        let subject = change.subject;
+        let abandoned = change.status == ChangeStatus::Abandoned;
+        let merged = change.status == ChangeStatus::Merged;
+        let wip = change.wip;
+        let styled = |style: owo_colors::Style| {
+            if merged {
+                style.magenta()
+            } else if abandoned {
+                style.dimmed().strikethrough()
+            } else if wip {
+                style.dimmed()
+            } else {
+                style.green()
+            }
+        };
         Ok(format!(
             "{}{}",
-            self.if_supports_color(Stderr, |change| Style::new().bold().green().style(change)),
+            self.if_supports_color(Stderr, |change| Style::new()
+                .bold()
+                .pipe(styled)
+                .style(change)),
             subject
                 .map(|subject| format!(" ({subject})"))
                 .unwrap_or_default()
