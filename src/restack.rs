@@ -28,6 +28,7 @@ const CONTINUE_MESSAGE: &str = "Fix conflicts and then use `git-gr restack conti
 /// TODO: Add versioning?
 #[derive(serde::Deserialize, serde::Serialize, Debug, Clone)]
 pub struct RestackTodo {
+    before: RepositoryState,
     pub graph: DependencyGraph,
     /// Restack steps left to perform.
     steps: VecDeque<Step>,
@@ -110,6 +111,12 @@ impl RestackTodo {
 
         Ok(())
     }
+}
+
+#[derive(serde::Deserialize, serde::Serialize, Debug, Clone)]
+pub struct RepositoryState {
+    change: Option<ChangeNumber>,
+    commit: CommitHash,
 }
 
 #[derive(serde::Deserialize, serde::Serialize, Debug, Clone)]
@@ -285,6 +292,8 @@ pub fn restack(
 
     fs::remove_file(todo_path(&git)?).into_diagnostic()?;
 
+    let restore = todo.before.clone();
+
     let mut todo = PushTodo::from(todo);
     if todo.is_empty() {
         tracing::info!("Restack completed; no changes");
@@ -303,6 +312,17 @@ pub fn restack(
         );
         tracing::info!("Restack completed but changes have not been pushed; run `git-gr restack push` to sync changes with the remote.");
     }
+
+    let restore_commit = match restore.change {
+        Some(restore_change) => todo
+            .refs
+            .get(&restore_change)
+            .map(|update| &update.new)
+            .unwrap_or(&restore.commit),
+        None => &restore.commit,
+    };
+
+    git.checkout(restore_commit)?;
 
     Ok(())
 }
@@ -374,11 +394,25 @@ pub fn create_todo(gerrit: &mut GerritGitRemote, branch: &str) -> miette::Result
         return Err(miette!("Restack todo already exists at `{todo_path}`"));
     }
 
-    let change_id = git
-        .change_id(branch)
-        .wrap_err("Failed to get Change-Id for HEAD")?;
+    let head = git.rev_parse("HEAD")?;
+    let head_change = match git
+        .change_id(&head)
+        .and_then(|change_id| gerrit.get_change(change_id))
+    {
+        Ok(change) => Some(change.number),
+        Err(error) => {
+            tracing::debug!("Failed to get HEAD change ID: {error}");
+            None
+        }
+    };
+
+    let change_id = git.change_id(branch)?;
     let change = gerrit.get_change(change_id)?;
     let mut todo = RestackTodo {
+        before: RepositoryState {
+            change: head_change,
+            commit: head,
+        },
         graph: gerrit.dependency_graph(change.number)?,
         steps: Default::default(),
         refs: Default::default(),
