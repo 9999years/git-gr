@@ -74,6 +74,14 @@ impl Change {
     }
 
     pub fn last_updated_cell(&self, timestamp_format: TimestampFormat) -> miette::Result<Cell> {
+        // _Something_ in my transitive dependency tree is making threads, which makes
+        // `time` refuse to get the local timezone. I don't think anything is going to
+        // change the local timezone so it's PRobably Fine.
+        //
+        // Safety: It's fine. It's FINE.
+        unsafe {
+            time::util::local_offset::set_soundness(time::util::local_offset::Soundness::Unsound)
+        };
         let now = OffsetDateTime::now_local().into_diagnostic()?;
         let now_date = now.date();
         let date = self.last_updated.date();
