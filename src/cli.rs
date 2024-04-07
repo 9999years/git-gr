@@ -1,3 +1,4 @@
+use camino::Utf8PathBuf;
 use clap::Parser;
 use clap::Subcommand;
 use reqwest::Method;
@@ -140,4 +141,11 @@ pub enum Restack {
     Abort,
     /// Push changes from a completed restack.
     Push,
+    /// Write `git-rebase-todo`.
+    #[command(hide = true)]
+    WriteTodo {
+        /// `git-rebase-todo` path to write to.
+        #[arg()]
+        git_rebase_todo: Utf8PathBuf,
+    },
 }

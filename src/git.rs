@@ -191,7 +191,7 @@ impl Git {
                     return Ok(gerrit);
                 }
                 Err(error) => {
-                    tracing::debug!(remote, url, %error, "Failed to parse remote URL");
+                    tracing::debug!(remote, url, ?error, "Failed to parse remote URL");
                 }
             }
         }
@@ -202,6 +202,16 @@ impl Git {
     pub fn cherry_pick(&self, commitish: &str) -> miette::Result<()> {
         self.command()
             .args(["cherry-pick", "--ff", commitish])
+            .status_checked()
+            .map(|_| ())
+            .into_diagnostic()?;
+        Ok(())
+    }
+
+    pub fn rebase_interactive(&self, sequence_editor: &str, onto: &str) -> miette::Result<()> {
+        self.command()
+            .args(["rebase", "--interactive", onto])
+            .env("GIT_SEQUENCE_EDITOR", sequence_editor)
             .status_checked()
             .map(|_| ())
             .into_diagnostic()?;
