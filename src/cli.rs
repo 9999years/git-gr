@@ -1,9 +1,11 @@
 use camino::Utf8PathBuf;
+use clap::Args;
 use clap::Parser;
 use clap::Subcommand;
 use reqwest::Method;
 
 use crate::change_number::ChangeNumber;
+use crate::commit_hash::CommitHash;
 use crate::endpoint::Endpoint;
 use crate::patchset::Patchset;
 
@@ -136,7 +138,7 @@ pub enum Restack {
     /// Restack only the currently checked-out CL on its immediate ancestor.
     This,
     /// Continue an in-progress restack.
-    Continue,
+    Continue(RestackContinue),
     /// Abort an in-progress restack.
     Abort,
     /// Push changes from a completed restack.
@@ -148,4 +150,20 @@ pub enum Restack {
         #[arg()]
         git_rebase_todo: Utf8PathBuf,
     },
+}
+
+#[derive(Debug, Clone, Args)]
+pub struct RestackContinue {
+    /// If you ran `git rebase --continue` on your own and then checked something else out,
+    /// `git-gr` will not be able to determine the new commit hash for the in-progress restack
+    /// step. Use this flag to supply it manually.
+    #[arg(long)]
+    pub in_progress_commit: Option<CommitHash>,
+
+    /// If you ran `git rebase --continue` on your own and then checked something else out,
+    /// `git-gr` will not be able to determine the new commit hash for the in-progress restack
+    /// step. Use this flag to restart the in-progress restack step, abandoning any changes you
+    /// may have made.
+    #[arg(long)]
+    pub restart_in_progress: bool,
 }

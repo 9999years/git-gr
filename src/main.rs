@@ -69,7 +69,7 @@ fn main() -> miette::Result<()> {
                 let todo = create_todo(&mut gerrit, branch_str)?;
                 todo.write(&git)?;
                 gerrit.push(branch.clone(), target)?;
-                gerrit.restack(branch_str)?;
+                gerrit.restack(branch_str, None)?;
             } else {
                 gerrit.push(branch, target)?;
             }
@@ -121,11 +121,11 @@ fn main() -> miette::Result<()> {
             let mut gerrit = git.gerrit(None)?;
             match command {
                 None => {
-                    gerrit.restack("HEAD")?;
+                    gerrit.restack("HEAD", None)?;
                 }
                 Some(command) => match command {
-                    cli::Restack::Continue => {
-                        gerrit.restack_continue()?;
+                    cli::Restack::Continue(restack_continue) => {
+                        gerrit.restack_continue(restack_continue)?;
                     }
                     cli::Restack::Abort => {
                         gerrit.restack_abort()?;

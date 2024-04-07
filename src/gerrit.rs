@@ -31,6 +31,7 @@ use crate::change::Change;
 use crate::change::TimestampFormat;
 use crate::change_key::ChangeKey;
 use crate::change_number::ChangeNumber;
+use crate::cli::RestackContinue;
 use crate::commit_hash::CommitHash;
 use crate::current_exe::current_exe;
 use crate::dependency_graph::DependencyGraph;
@@ -624,12 +625,16 @@ impl GerritGitRemote {
         Ok(())
     }
 
-    pub fn restack(&mut self, branch: &str) -> miette::Result<()> {
-        restack(self, branch)
+    pub fn restack(
+        &mut self,
+        branch: &str,
+        options: Option<RestackContinue>,
+    ) -> miette::Result<()> {
+        restack(self, branch, options)
     }
 
-    pub fn restack_continue(&mut self) -> miette::Result<()> {
-        self.restack("HEAD")
+    pub fn restack_continue(&mut self, options: RestackContinue) -> miette::Result<()> {
+        self.restack("HEAD", Some(options))
     }
 
     pub fn restack_push(&self) -> miette::Result<()> {
