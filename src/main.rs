@@ -9,6 +9,7 @@ mod change_status;
 mod cli;
 mod commit_hash;
 mod commit_info;
+mod config;
 mod current_exe;
 mod current_patch_set;
 mod dependency_graph;
@@ -40,7 +41,7 @@ mod unicode_tree;
 use calm_io::stdoutln;
 use clap::CommandFactory;
 use clap::Parser;
-use cli::Opts;
+use cli::Args;
 use command_error::CommandExt;
 use format_bulleted_list::format_bulleted_list;
 use git::Git;
@@ -53,7 +54,7 @@ use restack::create_todo;
 use miette::Context;
 
 fn main() -> miette::Result<()> {
-    let opts = Opts::parse();
+    let opts = Args::parse();
     install_tracing(&opts.log)?;
 
     match opts.command {
@@ -143,12 +144,12 @@ fn main() -> miette::Result<()> {
             }
         }
         cli::Command::Completions { shell } => {
-            let mut clap_command = cli::Opts::command();
+            let mut clap_command = cli::Args::command();
             clap_complete::generate(shell, &mut clap_command, "git-gr", &mut std::io::stdout());
         }
         #[cfg(feature = "clap_mangen")]
         cli::Command::Manpages { out_dir } => {
-            let clap_command = cli::Opts::command();
+            let clap_command = cli::Args::command();
             clap_mangen::generate_to(clap_command, out_dir)
                 .into_diagnostic()
                 .wrap_err("Failed to generate man pages")?;
