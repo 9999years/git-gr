@@ -54,7 +54,7 @@ impl Git {
     pub fn remote_url(&self, remote: &str) -> miette::Result<String> {
         Ok(self
             .command()
-            .args(["remote", "get-url", "--push", &remote])
+            .args(["remote", "get-url", "--push", remote])
             .output_checked_utf8()
             .into_diagnostic()
             .wrap_err("Failed to get Git remote URL")?
@@ -135,7 +135,7 @@ impl Git {
     pub fn commit_message(&self, commit: &str) -> miette::Result<String> {
         Ok(self
             .command()
-            .args(["show", "--no-patch", "--format=%B", &commit])
+            .args(["show", "--no-patch", "--format=%B", commit])
             .output_checked_utf8()
             .into_diagnostic()
             .wrap_err("Failed to get commit message")?

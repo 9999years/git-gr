@@ -1,10 +1,10 @@
 {
-  system,
   lib,
   stdenv,
   buildPackages,
-  libiconv,
+  pkgsStatic,
   darwin,
+  craneLib,
   inputs,
   rustPlatform,
   rust-analyzer,
@@ -13,8 +13,6 @@
   pkg-config,
   openssl,
 }: let
-  inherit (inputs) crane advisory-db;
-  craneLib = crane.lib.${system};
   src = lib.cleanSourceWith {
     src = craneLib.path ../../.;
     # Keep test data.
@@ -32,10 +30,7 @@
         openssl
       ]
       ++ lib.optionals stdenv.isDarwin [
-        (libiconv.override {
-          enableStatic = true;
-          enableShared = false;
-        })
+        pkgsStatic.libiconv
         darwin.apple_sdk.frameworks.CoreServices
         darwin.apple_sdk.frameworks.SystemConfiguration
       ];
@@ -74,7 +69,7 @@
     git-gr-fmt = craneLib.cargoFmt commonArgs;
     git-gr-audit = craneLib.cargoAudit (commonArgs
       // {
-        inherit advisory-db;
+        inherit (inputs) advisory-db;
       });
   };
 
