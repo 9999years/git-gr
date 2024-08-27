@@ -29,11 +29,11 @@ impl GerritProject {
                     ssh://
                     (?P<user>[[:word:]]+)
                     @
-                    (?P<host>[[:word:]][[:word:].]*)
+                    (?P<host>[[:word:]][[:word:].-]*)
                     :
                     (?P<port>[0-9]+)
                     /
-                    (?P<project>[[:word:].]+)
+                    (?P<project>[[:word:].-]+)
                     $",
                 )
                 .expect("Regex parses")
