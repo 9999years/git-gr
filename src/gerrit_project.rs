@@ -33,7 +33,7 @@ impl GerritProject {
                     :
                     (?P<port>[0-9]+)
                     /
-                    (?P<project>[[:word:].-]+)
+                    (?P<project>[[:word:]./-]+)
                     $",
                 )
                 .expect("Regex parses")
@@ -86,7 +86,7 @@ mod tests {
     #[test]
     fn test_gerrit_parse_remote_url() {
         assert_eq!(
-            GerritProject::parse_from_remote_url("ssh://rbt@ooga.booga.systems:2022/ouppy")
+            GerritProject::parse_from_remote_url("ssh://rbt@ooga.booga.systems:2022/ouppy/abc")
                 .unwrap(),
             GerritProject {
                 host: GerritHost {
@@ -94,7 +94,7 @@ mod tests {
                     host: "ooga.booga.systems".to_owned(),
                     port: 2022,
                 },
-                project: "ouppy".to_owned(),
+                project: "ouppy/abc".to_owned(),
             }
         );
     }
