@@ -173,6 +173,7 @@ jobs:
       - if_merged
       - build
       - version
+    environment: release
     permissions:
       contents: write
       issues: write
