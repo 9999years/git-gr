@@ -27,7 +27,7 @@ impl GerritProject {
                     r"(?x)
                     ^
                     ssh://
-                    (?P<user>[[:word:]]+)
+                    (?P<user>([[:word:]$.+!*'(),;?&=-]|%[0-9a-fA-F]{2})+)
                     @
                     (?P<host>[[:word:]][[:word:].-]*)
                     :
@@ -86,16 +86,26 @@ mod tests {
     #[test]
     fn test_gerrit_parse_remote_url() {
         assert_eq!(
-            GerritProject::parse_from_remote_url("ssh://rbt@ooga.booga.systems:2022/ouppy/abc")
-                .unwrap(),
+            GerritProject::parse_from_remote_url(
+                "ssh://joe.rbt%8f@ooga.booga.systems:2022/ouppy/abc"
+            )
+            .unwrap(),
             GerritProject {
                 host: GerritHost {
-                    username: "rbt".to_owned(),
+                    username: "joe.rbt%8f".to_owned(),
                     host: "ooga.booga.systems".to_owned(),
                     port: 2022,
                 },
                 project: "ouppy/abc".to_owned(),
             }
         );
+    }
+
+    #[test]
+    fn test_gerrit_parse_remote_url_fail() {
+        assert!(GerritProject::parse_from_remote_url(
+            "ssh://joe.rbt%j@ooga.booga.systems:2022/ouppy/abc",
+        )
+        .is_err());
     }
 }
