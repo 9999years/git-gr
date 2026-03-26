@@ -1,5 +1,4 @@
 use camino::Utf8PathBuf;
-use clap::Args;
 use clap::Parser;
 use clap::Subcommand;
 use reqwest::Method;
@@ -13,7 +12,7 @@ use crate::patchset::Patchset;
 #[derive(Debug, Clone, Parser)]
 #[command(version, author, about)]
 #[command(max_term_width = 100, disable_help_subcommand = true)]
-pub struct Opts {
+pub struct Args {
     /// Log filter directives, of the form `target[span{field=value}]=level`, where all components
     /// except the level are optional.
     ///
@@ -152,7 +151,7 @@ pub enum Restack {
     },
 }
 
-#[derive(Debug, Clone, Args)]
+#[derive(Debug, Clone, clap::Args)]
 pub struct RestackContinue {
     /// If you ran `git rebase --continue` on your own and then checked something else out,
     /// `git-gr` will not be able to determine the new commit hash for the in-progress restack
