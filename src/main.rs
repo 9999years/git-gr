@@ -52,7 +52,14 @@ use restack::create_todo;
 #[allow(unused_imports)]
 use miette::Context;
 
-fn main() -> miette::Result<()> {
+fn main() {
+    if let Err(error) = run() {
+        eprint!("{error:?}");
+        std::process::exit(1);
+    }
+}
+
+fn run() -> miette::Result<()> {
     let opts = Opts::parse();
     install_tracing(&opts.log)?;
 

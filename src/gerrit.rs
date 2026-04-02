@@ -553,11 +553,11 @@ pub struct GerritGitRemote {
 }
 
 impl GerritGitRemote {
-    pub fn from_remote(remote: &str, url: &str) -> miette::Result<Self> {
-        Ok(Self {
+    pub fn from_gerrit(remote: &str, gerrit: Gerrit) -> Self {
+        Self {
             remote: remote.to_owned(),
-            inner: GerritProject::parse_from_remote_url(url).and_then(Gerrit::new)?,
-        })
+            inner: gerrit,
+        }
     }
 
     pub fn restack_this(&mut self) -> miette::Result<()> {

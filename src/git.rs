@@ -11,7 +11,9 @@ use regex::Regex;
 use crate::change_id::ChangeId;
 use crate::commit_hash::CommitHash;
 use crate::format_bulleted_list;
+use crate::gerrit::Gerrit;
 use crate::gerrit::GerritGitRemote;
+use crate::gerrit_project::GerritProject;
 
 /// `git` CLI wrapper.
 #[derive(Debug, Default)]
@@ -174,29 +176,38 @@ impl Git {
             tracing::debug!(remote_name, "Looking for remote");
         }
 
-        for remote in self.remotes()? {
-            if let Some(remote_name) = gerrit_remote_name {
-                if remote_name != remote {
-                    tracing::debug!(remote, "Skipping remote");
-                    continue;
-                }
+        let remotes = self.remotes()?;
+        let Some((project, remote, url)) = remotes.iter().find_map(|remote| {
+            if gerrit_remote_name.is_some_and(|remote_name| remote_name != remote) {
+                tracing::debug!(remote, "Skipping remote");
+                None?;
             }
 
-            let url = self.remote_url(&remote)?;
+            let url = self
+                .remote_url(remote)
+                .inspect_err(|error| {
+                    tracing::debug!(?error, remote, "Failed to get remote URL");
+                })
+                .ok()?;
 
             tried.push(url.clone());
-
-            match GerritGitRemote::from_remote(&remote, &url) {
-                Ok(gerrit) => {
-                    return Ok(gerrit);
-                }
-                Err(error) => {
+            GerritProject::parse_from_remote_url(&url)
+                .inspect_err(|error| {
                     tracing::debug!(remote, url, ?error, "Failed to parse remote URL");
-                }
-            }
-        }
-
-        Err(miette!("Failed to parse Gerrit configuration from Git remotes. Tried to parse these remotes:\n{}", format_bulleted_list(tried)))
+                })
+                .ok()
+                .map(|project| (project, remote, url))
+        }) else {
+            Err(miette!(
+                "Failed to parse Gerrit configuration from Git remotes. \
+                 Tried to parse these remotes:\n{}",
+                format_bulleted_list(tried)
+            ))?
+        };
+        let gerrit = Gerrit::new(project).inspect_err(|error| {
+            tracing::debug!(remote, url, ?error, "Failed to create gerrit project");
+        })?;
+        Ok(GerritGitRemote::from_gerrit(remote, gerrit))
     }
 
     pub fn cherry_pick(&self, commitish: &str) -> miette::Result<()> {
