@@ -11,7 +11,9 @@ use regex::Regex;
 use crate::change_id::ChangeId;
 use crate::commit_hash::CommitHash;
 use crate::format_bulleted_list;
+use crate::gerrit::Gerrit;
 use crate::gerrit::GerritGitRemote;
+use crate::gerrit_project::GerritProject;
 
 /// `git` CLI wrapper.
 #[derive(Debug, Default)]
@@ -175,28 +177,36 @@ impl Git {
         }
 
         for remote in self.remotes()? {
-            if let Some(remote_name) = gerrit_remote_name {
-                if remote_name != remote {
-                    tracing::debug!(remote, "Skipping remote");
+            if gerrit_remote_name.is_some_and(|remote_name| remote_name != remote) {
+                tracing::debug!(remote, "Skipping remote");
+                continue;
+            }
+            let url = match self.remote_url(&remote) {
+                Ok(url) => url,
+                Err(error) => {
+                    tracing::debug!(?error, remote, "Failed to get remote URL");
                     continue;
                 }
-            }
-
-            let url = self.remote_url(&remote)?;
-
+            };
             tried.push(url.clone());
 
-            match GerritGitRemote::from_remote(&remote, &url) {
-                Ok(gerrit) => {
-                    return Ok(gerrit);
-                }
+            let project = match GerritProject::parse_from_remote_url(&url) {
+                Ok(project) => project,
                 Err(error) => {
                     tracing::debug!(remote, url, ?error, "Failed to parse remote URL");
+                    continue;
                 }
-            }
+            };
+            let gerrit = Gerrit::new(project).inspect_err(|error| {
+                tracing::debug!(remote, url, ?error, "Failed to create gerrit project");
+            })?;
+            return Ok(GerritGitRemote::from_gerrit(&remote, gerrit));
         }
-
-        Err(miette!("Failed to parse Gerrit configuration from Git remotes. Tried to parse these remotes:\n{}", format_bulleted_list(tried)))
+        Err(miette!(
+            "Failed to parse Gerrit configuration from Git remotes. \
+             Tried to parse these remotes:\n{}",
+            format_bulleted_list(tried)
+        ))
     }
 
     pub fn cherry_pick(&self, commitish: &str) -> miette::Result<()> {
